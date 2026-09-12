@@ -94,6 +94,8 @@ function check(settings, proxyBase) {
     padding: 13px 16px; margin-bottom: 10px; display: flex; gap: 12px; align-items: flex-start; }
   .mark { font-size: 16px; line-height: 1.4; flex: 0 0 auto; width: 18px; text-align: center; }
   .pass .mark { color: #007f5f; } .warn .mark { color: #b98900; } .fail .mark { color: #b42318; }
+  /* Neutral on both grounds: a statement of fact, not something to act on. */
+  .info .mark { color: #8c9196; }
   .label { font-weight: 600; margin: 0 0 2px; }
   .detail { margin: 0; color: #6d7175; overflow-wrap: anywhere; }
   code { background: rgba(128,128,128,0.14); border-radius: 4px; padding: 1px 5px;
@@ -130,8 +132,19 @@ function check(settings, proxyBase) {
    */
   var MANIFEST_URL = new URL(CFG.manifest, location.href).href;
 
+  /*
+   * Four states, and the fourth is the one that matters here.
+   *
+   * "info" is for a condition that is permanent, expected and outside anyone's
+   * control — reporting one of those as a warning sends merchants hunting for a
+   * setting that does not exist. A warning has to mean "you can do something
+   * about this" or it trains people to ignore the whole page.
+   */
   function report(state, label, detail) {
-    var mark = state === 'pass' ? '&#10003;' : (state === 'warn' ? '!' : '&#10007;');
+    var mark = state === 'pass' ? '&#10003;'
+      : state === 'warn' ? '!'
+      : state === 'info' ? '&#8226;'
+      : '&#10007;';
     var el = document.createElement('div');
     el.className = 'check ' + state;
     el.innerHTML = '<div class="mark">' + mark + '</div><div><p class="label"></p><p class="detail"></p></div>';
@@ -235,9 +248,14 @@ function check(settings, proxyBase) {
 
   /* 3. Service worker scope — the finding that shapes this app. */
   if (!CFG.swEnabled) {
-    report('warn', 'Service worker', 'Turned off in the app admin. Installing does not need one; offline browsing does.');
+    report('info', 'Service worker is off',
+      'Turned off in the app admin, which is the default. Installing does not need one. ' +
+      'Offline browsing does, but Shopify strips the header a proxy-served worker needs in ' +
+      'order to control storefront pages, so turning it on would not deliver offline browsing either.');
   } else if (!('serviceWorker' in navigator)) {
-    report('warn', 'Service worker', 'This browser has no service worker support.');
+    report('info', 'Service worker unsupported here',
+      'This browser has no service worker support. That affects offline browsing only, which is ' +
+      'not available on a Shopify storefront in any case. Installing is unaffected.');
   } else {
     navigator.serviceWorker.register(CFG.sw, { scope: '/' }).then(function (reg) {
       report('pass', 'Service worker controls the whole site',
@@ -245,10 +263,13 @@ function check(settings, proxyBase) {
         '<code>Service-Worker-Allowed</code>, so offline browsing and a custom install button both work.');
     }).catch(function () {
       return navigator.serviceWorker.register(CFG.sw).then(function (reg) {
-        report('warn', 'Service worker is scope-limited',
-          'Registered, but only for <code>' + esc(reg.scope) + '</code>. Shopify strips the ' +
-          '<code>Service-Worker-Allowed</code> header, so the worker cannot control storefront pages. ' +
-          'Installing is unaffected; offline browsing is not available.');
+        report('info', 'Service worker is scope-limited — expected, nothing to fix',
+          'Registered for <code>' + esc(reg.scope) + '</code>. Shopify strips the ' +
+          '<code>Service-Worker-Allowed</code> header from every app-proxy response, so a worker ' +
+          'served through this path can never control storefront pages. No setting in this app, ' +
+          'your theme or your Shopify admin changes that. ' +
+          'Installing, the home screen icon and the splash screen are all unaffected — only offline ' +
+          'browsing is out of reach. If Shopify ever forwards the header, this row turns green on its own.');
       }).catch(function (err) {
         report('fail', 'Service worker', 'Registration failed: ' + esc(err.message));
       });
@@ -267,9 +288,11 @@ function check(settings, proxyBase) {
       report('pass', 'Custom install button available',
         'The browser fired <code>beforeinstallprompt</code>, so the in-page Install button opens the native dialog.');
     } else {
-      report('warn', 'No beforeinstallprompt',
-        'Expected on Shopify: Chrome only fires it when a service worker with a fetch handler controls the page. ' +
-        'Installing from the browser menu or the address-bar icon still works, and the app shows those directions instead.');
+      report('info', 'No beforeinstallprompt — expected, nothing to fix',
+        'Chrome only fires it when a service worker with a fetch handler controls the page, which the row ' +
+        'above explains cannot happen here. This is the normal state on a Shopify storefront, not a fault. ' +
+        'Installing from the browser menu or the address-bar icon still works, and the install card shows ' +
+        'those directions instead of a dialog it cannot open.');
     }
   }, 3000);
 })();

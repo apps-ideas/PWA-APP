@@ -1448,11 +1448,15 @@ curl -sI https://&lt;your-store&gt;/apps/pwa/icon-512.png</code></pre>
       <div class="check">
         <span class="lab">Check</span>
         <p>The admin renders inside the iframe rather than blank;
-          <code>/check</code> passes every row; the icon returns <code>200</code>
+          <code>/check</code> shows no red rows; the icon returns <code>200</code>
           and <code>image/png</code>.</p>
+        <p>Grey rows are not failures. <code>/check</code> marks by-design
+          platform limits — the scope-limited service worker, no
+          <code>beforeinstallprompt</code> — in grey rather than amber, because
+          no setting in this app, your theme or Shopify changes them. Amber means
+          something you can act on; red means something is wrong.</p>
         <p>A 404 on the proxy paths while <code>/healthz</code> works means the
-          proxy URL lost its <code>/pwa/proxy</code> suffix — back to step 12.
-          Offline browsing failing is expected, not a deploy fault.</p>
+          proxy URL lost its <code>/pwa/proxy</code> suffix — back to step 12.</p>
       </div>
 
       <label class="doneline"><input type="checkbox" id="done-s13" data-step="s13"> Mark step complete</label>
