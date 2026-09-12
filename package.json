@@ -1,0 +1,20 @@
+{
+  "name": "storefront-pwa-app",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Makes a Shopify storefront installable as a PWA on desktop and mobile",
+  "scripts": {
+    "dev": "shopify app dev",
+    "deploy": "shopify app deploy",
+    "backend": "node web/server.js",
+    "start": "node web/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "sharp": "^0.33.5"
+  }
+}

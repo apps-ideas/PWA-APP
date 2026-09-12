@@ -1,0 +1,60 @@
+# Storefront PWA — Shopify app
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+#
+# WHY THIS APP EXISTS
+# ------------------------------------------------------------------
+# To make a storefront installable, the browser needs a web app manifest, and
+# the manifest's `start_url` MUST be same-origin with the manifest itself.
+# That single rule is what forces an app proxy:
+#
+#   * A manifest uploaded as a theme asset resolves to
+#     /cdn/shop/t/<THEME_ID>/assets/manifest.json — a DIFFERENT origin from the
+#     storefront, so `start_url: "/"` fails the same-origin check and the store
+#     is not installable. <THEME_ID> also changes on every publish/duplicate.
+#   * You cannot upload a file to the domain root.
+#   * .json and .webmanifest are not servable theme asset types with the right
+#     Content-Type anyway.
+#
+# /apps/pwa/* is a permanent, same-origin path that survives every theme
+# change. The manifest, the icons, the iOS splash images and the storefront
+# script are all served from there.
+#
+# NOTE: replace client_id below with the Client ID from your Partner dashboard
+# after running `shopify app config link`, and replace pwa.gaapps.cloud if you
+# host this somewhere else.
+
+client_id = "94d6bc3a3bbf25b391ce1edd9a4dffd7"
+name = "Storefront PWA"
+application_url = "https://pwa.gaapps.cloud"
+embedded = true
+handle = "storefront-pwa"
+
+[build]
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+[access_scopes]
+# No Admin API access is needed. Settings live in this app's own store, the
+# manifest is served by the proxy, and the head tags are injected by a theme
+# app embed — none of which touches the Admin API. Keeping scopes empty means
+# no access token to store and no OAuth code path to maintain; the embedded
+# admin authenticates with App Bridge session tokens instead (web/auth.js).
+scopes = ""
+optional_scopes = [ ]
+
+[auth]
+redirect_urls = [ "https://pwa.gaapps.cloud/api/auth" ]
+
+[app_proxy]
+# Shopify forwards the path AFTER the subpath to this URL, so
+# /apps/pwa/manifest.json -> {url}/manifest.json
+# The backend mounts its storefront routes under /pwa/proxy (see web/server.js).
+url = "https://pwa.gaapps.cloud/pwa/proxy"
+subpath = "pwa"
+prefix = "apps"

@@ -1,0 +1,7 @@
+{
+  "settings": {
+    "proxy_base": "App proxy path",
+    "theme_color": "Theme colour override",
+    "excluded_templates": "Do not load on these templates"
+  }
+}
