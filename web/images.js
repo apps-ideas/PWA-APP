@@ -326,7 +326,7 @@ async function renderSplash(shop, settings, width, height) {
     return sharp({
       create: {
         width,
-        height,
+        height: SPLASH_LOGO_HEIGHT,
         channels: 4,
         background: settings.backgroundColor || '#ffffff',
       },
