@@ -313,10 +313,7 @@
       '  display: flex; gap: 11px; align-items: flex-start;',
       '  animation: pwa-in 220ms ease-out;',
       '}',
-      '@media (prefers-reduced-motion: reduce) {',
-      '  .card { animation: none; }',
-      '  .more > summary::after { transition: none; }',
-      '}',
+      '@media (prefers-reduced-motion: reduce) { .card { animation: none; } }',
       '@keyframes pwa-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }',
       '.icon { width: 34px; height: 34px; border-radius: 8px; flex: 0 0 auto; object-fit: cover; }',
       '.body { flex: 1 1 auto; min-width: 0; }',
@@ -338,29 +335,8 @@
       '.btn.secondary { background: transparent; color: inherit; opacity: 0.7; padding: 7px 6px; }',
       '.btn:focus-visible { outline: 2px solid ' + CFG.themeColor + '; outline-offset: 2px; }',
 
-      /*
-       * Steps live behind a disclosure, closed on load. A <details> rather than
-       * a button plus aria-expanded: the semantics, the keyboard behaviour and
-       * the toggling are the element's job, and it still works if this script's
-       * listeners never run.
-       */
-      '.more { margin: 0 0 9px; }',
-      '.more > summary {',
-      '  list-style: none; cursor: pointer;',
-      '  display: inline-flex; align-items: center; gap: 5px;',
-      '  font-size: 13px; font-weight: 600; opacity: 0.78; padding: 1px 0;',
-      '}',
-      '.more > summary::-webkit-details-marker { display: none; }',
-      '.more > summary::after {',
-      '  content: "\\25BE"; font-size: 9px; opacity: 0.8;',
-      '  transition: transform 150ms ease;',
-      '}',
-      '.more[open] > summary::after { transform: rotate(180deg); }',
-      '.more > summary:hover { opacity: 1; }',
-      '.more > summary:focus-visible {',
-      '  outline: 2px solid ' + CFG.themeColor + '; outline-offset: 2px; border-radius: 4px; opacity: 1;',
-      '}',
-      '.steps { margin: 8px 0 0; padding-left: 17px; font-size: 13px; }',
+      // Only reached by clicking Install on a browser with no native dialog.
+      '.steps { margin: 0 0 9px; padding-left: 17px; font-size: 13px; }',
       '.steps li { margin-bottom: 5px; }',
       '.steps li:last-child { margin-bottom: 0; }',
       '.close {',
@@ -426,16 +402,24 @@
      * comes first in the tab order — someone reaching for the card by keyboard
      * is far more likely to want Install than Close.
      *
-     * It dismisses rather than merely hiding: the card is on a timer, so a
-     * close that only hid it would put it back on the next page view, which is
-     * the behaviour that makes these things hated. Same contract as "Not now".
+     * This one hides and nothing more: no dismissal period is written, so the
+     * card can return on the next page view. That is the difference between it
+     * and the two labelled buttons — "Not now" and "Got it" both mean "stop
+     * asking" and set the period; the × means "not on this screen". Two exits
+     * with different weights, which is what a visitor reaching for a corner ×
+     * usually expects.
+     *
+     * The cost is that someone who closes it on every page is offered it on
+     * every page. If that turns out to be the common case, this is the line to
+     * change — point it at dismiss() and the × becomes a third way to say
+     * "stop asking".
      */
     var close = document.createElement('button');
     close.className = 'close';
     close.type = 'button';
     close.setAttribute('aria-label', 'Close');
     close.textContent = '×';
-    close.addEventListener('click', dismiss);
+    close.addEventListener('click', hideCard);
     card.appendChild(close);
 
     shadow.appendChild(card);
@@ -524,23 +508,16 @@
       }
 
       /*
-       * Closed on load, always. The card's job at rest is to be small enough to
-       * ignore; someone who wants the steps opens them.
+       * Shown outright, not behind a disclosure. This card is only ever reached
+       * by clicking Install, so the steps are the answer to a question that has
+       * just been asked — putting them one more click away would be perverse.
        *
-       * "Cannot install" is the exception — it is one sentence, and hiding it
-       * behind a toggle labelled "How to install" would promise a route that
-       * does not exist on this browser.
+       * The timed card never gets here: it shows the Install button instead,
+       * which is what "remove the steps from the popup" means in practice.
        */
       var stepsBlock;
       if (supported) {
-        stepsBlock = document.createElement('details');
-        stepsBlock.className = 'more';
-
-        var summary = document.createElement('summary');
-        summary.textContent = 'How to install';
-
-        stepsBlock.appendChild(summary);
-        stepsBlock.appendChild(list);
+        stepsBlock = list;
       } else {
         stepsBlock = document.createElement('p');
         stepsBlock.className = 'text';
@@ -615,8 +592,18 @@
       // Conditions are re-checked on fire: the visitor may have installed from
       // the browser's own menu while the timer was running.
       if (!shouldOffer()) return;
-      if (deferredPrompt) showPrompt();
-      else showInstructions(false);
+
+      /*
+       * One card for every browser that can install at all: icon, title, text,
+       * Install. Whether a native dialog is available changes what the button
+       * does, not what the card looks like — a visitor has no use for that
+       * distinction before they have clicked anything.
+       *
+       * The guard keeps the old silence on browsers that cannot install by any
+       * route (desktop Firefox, anything unrecognised). Offering an Install
+       * button there would be a button that cannot work.
+       */
+      if (deferredPrompt || instructionsFor(platform()).length) showPrompt();
     }, Math.max(0, CFG.install.delaySeconds) * 1000);
   }
 

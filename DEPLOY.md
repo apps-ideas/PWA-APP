@@ -932,10 +932,18 @@ Conditions are re-checked when the timer fires, not just when it is set: a
 visitor who installs from the browser's own menu during those eight seconds
 never sees the card.
 
-The card closes three ways — the **×** in its corner, **Not now**, and **Got
-it** on the instructions card. All three start the same dismissal period. None
-of them merely hides the card for the current page, because a card that returns
-on the next page view is the behaviour that makes these things hated.
+The card closes three ways, and they do not all mean the same thing:
+
+| Control | Effect |
+|---|---|
+| **×** in the corner | Hides the card. No dismissal period — it can return on the next page view |
+| **Not now** | Starts the dismissal period |
+| **Got it** (instructions card) | Starts the dismissal period |
+
+The two labelled buttons mean "stop asking"; the × means "not on this screen".
+A visitor reaching for a corner × is usually closing the thing in front of them,
+not opting out for a fortnight — but the trade is that someone who closes it on
+every page is offered it on every page.
 
 ### Two switches, and they do different things
 
@@ -978,6 +986,12 @@ install API on any platform.
 So the app detects what the browser will actually allow and shows that browser's
 own directions instead — which is why installing still works everywhere in the
 capability table, just not through a single click.
+
+The popup looks the same either way: icon, title, text, **Install**. What
+changes is what the button *does* — it opens the native dialog where one is
+available, and replaces the card with that browser's own directions where there
+isn't. A visitor has no use for that distinction before they have clicked
+anything, so the card does not expose it.
 
 There is a deliberate asymmetry in when it speaks up. The **timed card stays
 silent** on a browser that cannot install, because an unprompted card offering
