@@ -139,7 +139,7 @@ proxy.get('/manifest.json', (req, res) => {
 
 proxy.get('/pwa.js', (req, res) => {
   const s = req.settings;
-  const rev = s.assets.icon.rev || 'placeholder';
+  const rev = images.renderRev(s);
 
   const config = {
     version: APP_VERSION,
@@ -228,13 +228,21 @@ proxy.get(/^\/splash-(\d+)x(\d+)\.png$/, async (req, res, next) => {
   }
 });
 
-proxy.get(/^\/screenshot-(wide|narrow)\.png$/, (req, res) => {
+proxy.get(/^\/screenshot-(wide|narrow)\.png$/, (req, res, next) => {
   const kind = req.params[0] === 'wide' ? 'screenshotWide' : 'screenshotNarrow';
   if (!req.settings.assets[kind].present) return res.status(404).type('text/plain').send('not set');
 
-  cacheFor(res, 31536000, true);
-  res.type('image/png');
-  res.sendFile(images.screenshotPath(req.shop, kind));
+  // Served straight off disk rather than re-encoded: Chrome wants the real
+  // image at the exact size the manifest declares. The caching options go
+  // through sendFile rather than a header set beforehand — sendFile writes its
+  // own Cache-Control and would overwrite one set here.
+  return res.sendFile(images.screenshotPath(req.shop, kind), {
+    maxAge: '1y',
+    immutable: true,
+    headers: { 'Content-Type': 'image/png' },
+  }, (err) => {
+    if (err) next(err);
+  });
 });
 
 proxy.get('/offline', (req, res) => {
@@ -301,9 +309,14 @@ app.post('/webhooks/app/uninstalled', express.raw({ type: 'application/json', li
 
 app.use(express.json({ limit: '256kb' }));
 
-app.get('/api/settings', auth.requireSession, (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.json({ settings: settingsStore.read(req.shop), shop: req.shop });
+app.get('/api/settings', auth.requireSession, async (req, res, next) => {
+  try {
+    const settings = settingsStore.read(req.shop);
+    res.set('Cache-Control', 'no-store');
+    res.json({ settings, shop: req.shop, previews: await images.thumbnails(req.shop, settings) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 app.post('/api/settings', auth.requireSession, (req, res) => {
@@ -319,6 +332,16 @@ app.post('/api/settings', auth.requireSession, (req, res) => {
   settings.serviceWorker.cacheVersion = current.serviceWorker.cacheVersion + (swChanged ? 1 : 0);
 
   const saved = settingsStore.write(req.shop, settings);
+
+  // The colours and the store's initial are baked into the maskable icons, the
+  // splash screens and the placeholder icon, so a change to any of them means
+  // the renders on disk are stale. Their URLs change with them (renderRev
+  // covers the same inputs), so this is only housekeeping — without it the
+  // superseded files would sit in the data directory forever.
+  if (images.renderRev(saved) !== images.renderRev(current)) {
+    images.clearDerived(req.shop);
+  }
+
   res.set('Cache-Control', 'no-store');
   res.json({ settings: saved, warnings });
 });
@@ -363,7 +386,7 @@ app.post(
       }
 
       const saved = settingsStore.write(req.shop, current);
-      return res.json({ settings: saved, warnings });
+      return res.json({ settings: saved, warnings, previews: await images.thumbnails(req.shop, saved) });
     } catch (err) {
       const status = err.status || 500;
       if (status >= 500) console.error('asset upload failed for ' + req.shop + ':', err);
@@ -372,7 +395,7 @@ app.post(
   }
 );
 
-app.delete('/api/assets/:kind', auth.requireSession, (req, res) => {
+app.delete('/api/assets/:kind', auth.requireSession, (req, res, next) => {
   const kind = req.params.kind;
   if (!settingsStore.ASSET_KINDS.includes(kind)) {
     return res.status(400).json({ error: 'Unknown asset: ' + kind });
@@ -381,7 +404,13 @@ app.delete('/api/assets/:kind', auth.requireSession, (req, res) => {
   images.removeUpload(req.shop, kind);
   const current = settingsStore.read(req.shop);
   current.assets[kind] = { present: false, rev: null, width: 0, height: 0, type: null };
-  return res.json({ settings: settingsStore.write(req.shop, current) });
+
+  const saved = settingsStore.write(req.shop, current);
+  // removeUpload clears every derivative, including the other assets' thumbs,
+  // so they are re-rendered here rather than left as stale data URLs.
+  return images.thumbnails(req.shop, saved)
+    .then((previews) => res.json({ settings: saved, previews }))
+    .catch(next);
 });
 
 app.get('/admin.js', (req, res) => {

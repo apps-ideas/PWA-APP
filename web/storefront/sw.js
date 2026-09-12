@@ -146,20 +146,27 @@ function handleNavigation(request) {
     return null;
   });
 
-  return Promise.race([network, timeout])
-    .then(function (response) { return response || network; })
-    .then(function (response) {
-      if (response) return response;
-      return caches.match(request).then(function (cached) {
-        if (cached) return cached;
-        return caches.match(CFG.offlineUrl).then(function (offline) {
-          return offline || new Response('You are offline.', {
-            status: 503,
-            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-          });
-        });
+  function fallback() {
+    return caches.match(CFG.offlineUrl).then(function (offline) {
+      return offline || new Response('You are offline.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
       });
     });
+  }
+
+  return Promise.race([network, timeout]).then(function (response) {
+    if (response) return response;
+
+    // The network either failed or is past the timeout. A cached copy is worth
+    // showing now; if there is none, keep waiting on the request that is still
+    // in flight rather than declaring the visitor offline while it may yet
+    // answer — only a genuine failure reaches the offline page.
+    return caches.match(request).then(function (cached) {
+      if (cached) return cached;
+      return network.then(function (late) { return late || fallback(); });
+    });
+  });
 }
 
 /**

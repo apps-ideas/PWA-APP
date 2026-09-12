@@ -187,7 +187,7 @@ ${shop && apiKey ? '<script src="https://cdn.shopify.com/shopifycloud/app-bridge
     <p class="hint">How the installed window looks before your storefront has painted.</p>
     <div class="grid">
       ${colorField('themeColor', 'Theme colour', 'Tints the title bar and the Android status bar. Also the install button colour.')}
-      ${colorField('backgroundColor', 'Background colour', 'The splash screen while the store loads. Match your storefront background, not your brand colour.')}
+      ${colorField('backgroundColor', 'Background colour', 'The splash screen while the store loads, and the padding around the Android home screen icon. Match your storefront background, not your brand colour.')}
     </div>
     <div class="grid" style="margin-top:14px">
       ${field('display', 'Display mode', select('display', [['standalone', 'Standalone — own window, no browser UI'], ['minimal-ui', 'Minimal UI — a back and reload control'], ['fullscreen', 'Fullscreen — no system UI at all'], ['browser', 'Browser — an ordinary tab']]), 'Standalone is what makes it feel like an app.')}
@@ -295,6 +295,7 @@ function script() {
   ];
 
   var state = null;
+  var previews = {};
   var el = function (id) { return document.getElementById(id); };
 
   function get(obj, path) {
@@ -367,22 +368,22 @@ function script() {
     }
   }
 
-  function renderAsset(kind, urlPath) {
+  function renderAsset(kind, emptyText) {
     var asset = state.assets[kind];
     var preview = el(kind + 'Preview');
     var meta = el(kind + 'Meta');
+    // The stored files live behind the storefront proxy, on a different origin
+    // from this admin, so the server sends a small inline thumbnail instead.
+    var src = previews[kind];
 
-    if (asset.present) {
-      // Served through the admin origin is not possible — these files only
-      // exist behind the storefront proxy — so preview from the local blob we
-      // just uploaded, or from the placeholder text when reloading.
-      preview.style.display = asset.dataUrl ? '' : 'none';
-      if (asset.dataUrl) preview.src = asset.dataUrl;
-      meta.textContent = asset.width + ' x ' + asset.height + ' uploaded';
+    if (asset.present && src) {
+      preview.style.display = '';
+      preview.src = src;
+      meta.textContent = asset.width + ' x ' + asset.height;
     } else {
       preview.style.display = 'none';
       preview.removeAttribute('src');
-      meta.textContent = urlPath;
+      meta.textContent = asset.present ? 'Uploaded, but the preview could not be rendered' : emptyText;
     }
   }
 
@@ -463,9 +464,7 @@ function script() {
         body: file
       }).then(function (body) {
         state = body.settings;
-        // Preview from the local file: the stored copy is only reachable
-        // through the storefront proxy, not from the admin origin.
-        state.assets[kind].dataUrl = URL.createObjectURL(file);
+        previews = body.previews || {};
         renderAssets();
         banner('warn', 'Uploaded, with notes:', body.warnings);
         status('Image saved');
@@ -482,6 +481,7 @@ function script() {
       status('Removing…');
       api('/api/assets/' + kind, { method: 'DELETE' }).then(function (body) {
         state = body.settings;
+        previews = body.previews || {};
         renderAssets();
         status('Image removed');
       }).catch(function (err) {
@@ -518,6 +518,7 @@ function script() {
     status('Loading…');
     api('/api/settings').then(function (body) {
       state = body.settings;
+      previews = body.previews || {};
       banner('', '', []);
       render();
     }).catch(function (err) {

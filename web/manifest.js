@@ -14,7 +14,7 @@
  * silently end up with a manifest full of 404s.
  */
 
-const { IOS_DEVICES, MANIFEST_ICON_SIZES } = require('./images.js');
+const { IOS_DEVICES, MANIFEST_ICON_SIZES, renderRev } = require('./images.js');
 
 function iconEntry(proxyBase, size, rev, maskable) {
   return {
@@ -52,7 +52,7 @@ function screenshots(settings, proxyBase) {
 }
 
 function build(settings, proxyBase) {
-  const rev = settings.assets.icon.rev || 'placeholder';
+  const rev = renderRev(settings);
 
   const icons = [];
   for (const size of MANIFEST_ICON_SIZES) {
@@ -122,7 +122,7 @@ function build(settings, proxyBase) {
 function iosSplashLinks(settings, proxyBase) {
   if (!settings.ios.splash) return [];
 
-  const rev = settings.assets.icon.rev || 'placeholder';
+  const rev = renderRev(settings);
   const links = [];
 
   for (const device of IOS_DEVICES) {

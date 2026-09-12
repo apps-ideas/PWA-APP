@@ -2,8 +2,9 @@
  * Icon, screenshot and iOS splash rendering.
  *
  * A merchant uploads one square logo. Everything a manifest needs is derived
- * from it on first request and cached on disk, keyed by a content hash (`rev`)
- * so a re-upload invalidates every derivative at once without a cache sweep.
+ * from it on first request and cached on disk, keyed by `renderRev` — a hash of
+ * the upload *and* the settings that affect rendering — so a re-upload or a
+ * colour change invalidates every derivative at once, URLs included.
  *
  * Only sizes on the allow-lists below are ever rendered. The render routes are
  * public (they are reached through the app proxy, where a signature cannot be
@@ -85,6 +86,38 @@ function derivedDir(shop) {
   return path.join(assetDir(shop), 'derived');
 }
 
+/**
+ * The cache key for everything derived from the icon.
+ *
+ * Not just the uploaded file's hash: the maskable icons are padded with the
+ * background colour, the splash screens are drawn on it, and the placeholder
+ * icon is drawn from the theme colour and the store's initial. All of those are
+ * settings, not pixels. Keying on the upload alone would leave a merchant who
+ * changes their background colour serving last month's renders out of a
+ * year-long immutable cache, with no way to flush it.
+ */
+function renderRev(settings) {
+  const icon = settings.assets.icon;
+  const seed = [
+    icon.rev || 'placeholder',
+    settings.themeColor,
+    settings.backgroundColor,
+    // Only the placeholder depends on the name, but including it always is
+    // cheaper than reasoning about when it matters.
+    (settings.shortName || settings.name || '?').trim().charAt(0).toUpperCase(),
+  ].join('|');
+  return crypto.createHash('sha256').update(seed).digest('hex').slice(0, 12);
+}
+
+/** Drops every derived render. Cheap: they are all regenerated on demand. */
+function clearDerived(shop) {
+  try {
+    fs.rmSync(derivedDir(shop), { recursive: true, force: true });
+  } catch (err) {
+    console.error('could not clear derived images for ' + shop + ':', err.message);
+  }
+}
+
 function sourcePath(shop, kind) {
   return path.join(assetDir(shop), kind + '.src.png');
 }
@@ -164,11 +197,7 @@ async function saveUpload(shop, kind, buffer) {
 
   // Old derivatives are keyed by the previous rev, so they are unreachable the
   // moment settings are saved. Delete them anyway: nothing else ever will.
-  try {
-    fs.rmSync(derivedDir(shop), { recursive: true, force: true });
-  } catch (err) {
-    console.error('could not clear derived images for ' + shop + ':', err.message);
-  }
+  clearDerived(shop);
 
   return {
     present: true,
@@ -183,10 +212,10 @@ async function saveUpload(shop, kind, buffer) {
 function removeUpload(shop, kind) {
   try {
     fs.rmSync(sourcePath(shop, kind), { force: true });
-    fs.rmSync(derivedDir(shop), { recursive: true, force: true });
   } catch (err) {
     console.error('could not remove ' + kind + ' for ' + shop + ':', err.message);
   }
+  clearDerived(shop);
 }
 
 function escapeXml(value) {
@@ -234,7 +263,7 @@ async function renderIcon(shop, settings, size, maskable) {
     throw Object.assign(new Error('Unsupported icon size'), { status: 404 });
   }
 
-  const rev = settings.assets.icon.rev || 'placeholder';
+  const rev = renderRev(settings);
   const name = 'icon-' + rev + '-' + size + (maskable ? '-maskable' : '') + '.png';
   const target = path.join(derivedDir(shop), name);
 
@@ -245,6 +274,12 @@ async function renderIcon(shop, settings, size, maskable) {
     const logo = await baseIcon(shop, settings, inner);
     const offset = Math.round((size - inner) / 2);
 
+    // Padded with the background colour rather than the theme colour, for the
+    // same reason the splash screen uses it: an uploaded logo usually carries
+    // its own light background, and padding it with a bold brand colour puts a
+    // white square inside a coloured circle. Matching the splash also makes
+    // launching the app look continuous with its icon.
+    //
     // A maskable icon must be opaque to the edges: the platform crops it to its
     // own shape, and any transparency there shows as a hole in the mask.
     return sharp({
@@ -252,7 +287,7 @@ async function renderIcon(shop, settings, size, maskable) {
         width: size,
         height: size,
         channels: 4,
-        background: settings.themeColor || '#111111',
+        background: settings.backgroundColor || '#ffffff',
       },
     })
       .composite([{ input: logo, top: offset, left: offset }])
@@ -267,7 +302,7 @@ async function renderSplash(shop, settings, width, height) {
     throw Object.assign(new Error('Unsupported splash size'), { status: 404 });
   }
 
-  const rev = settings.assets.icon.rev || 'placeholder';
+  const rev = renderRev(settings);
   const target = path.join(derivedDir(shop), 'splash-' + rev + '-' + width + 'x' + height + '.png');
 
   return cached(target, async () => {
@@ -298,14 +333,67 @@ function screenshotPath(shop, kind) {
   return sourcePath(shop, kind);
 }
 
+const THUMB_ICON_SIZE = 96;
+const THUMB_SCREENSHOT_WIDTH = 240;
+
+/**
+ * A small data URL of an uploaded image, for the admin to display.
+ *
+ * A data URL rather than a URL to fetch, because the stored files are only
+ * reachable through the storefront app proxy — the admin runs on a different
+ * origin and an <img src> cannot carry the session token that would be needed
+ * to serve them from here. A few tens of kilobytes inline is a fair price for
+ * a merchant being able to see the icon they uploaded last month.
+ */
+async function renderThumbnail(shop, settings, kind) {
+  if (!settings.assets[kind].present) return null;
+
+  const rev = settings.assets[kind].rev;
+  const target = path.join(derivedDir(shop), 'thumb-' + kind + '-' + rev + '.png');
+
+  try {
+    const buffer = await cached(target, () => {
+      if (kind === 'icon') {
+        return sharp(sourcePath(shop, 'icon'))
+          .resize(THUMB_ICON_SIZE, THUMB_ICON_SIZE, { fit: 'cover', position: 'centre' })
+          .png({ compressionLevel: 9 })
+          .toBuffer();
+      }
+      return sharp(sourcePath(shop, kind))
+        .resize({ width: THUMB_SCREENSHOT_WIDTH, withoutEnlargement: true })
+        .png({ compressionLevel: 9 })
+        .toBuffer();
+    });
+    return 'data:image/png;base64,' + buffer.toString('base64');
+  } catch (err) {
+    // A missing source file means the settings and the disk disagree. Show no
+    // preview rather than failing the whole settings request over a thumbnail.
+    console.error('thumbnail failed for ' + shop + '/' + kind + ':', err.message);
+    return null;
+  }
+}
+
+/** Thumbnails for every uploaded asset, keyed the same way settings.assets is. */
+async function thumbnails(shop, settings) {
+  const kinds = Object.keys(settings.assets);
+  const rendered = await Promise.all(kinds.map((kind) => renderThumbnail(shop, settings, kind)));
+  return kinds.reduce((out, kind, i) => {
+    out[kind] = rendered[i];
+    return out;
+  }, {});
+}
+
 module.exports = {
   ICON_SIZES,
   IOS_DEVICES,
   MANIFEST_ICON_SIZES,
   SPLASH_SIZES,
+  clearDerived,
   removeUpload,
   renderIcon,
+  renderRev,
   renderSplash,
   saveUpload,
   screenshotPath,
+  thumbnails,
 };

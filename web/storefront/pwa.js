@@ -178,6 +178,11 @@
     return INSTRUCTIONS[p] || [];
   }
 
+  /* Firefox on the desktop has no install support at all, and neither does an
+   * unrecognised browser. Saying so is only worth doing when someone has just
+   * clicked an Install button and is waiting for something to happen. */
+  var NO_SUPPORT = ['This browser cannot install web apps. Try Chrome, Edge or Safari.'];
+
   /* --------------------------------------------------------- head wiring */
 
   function applyHeadTags() {
@@ -351,7 +356,6 @@
     card.className = 'card';
     card.setAttribute('role', 'dialog');
     card.setAttribute('aria-label', CFG.install.title);
-    card.style.position = 'fixed';
     contentBuilder(card);
     shadow.appendChild(card);
 
@@ -407,9 +411,15 @@
     });
   }
 
-  function showInstructions() {
+  /* `forced` means the visitor asked — a click on the card's button or on a
+   * merchant's own [data-pwa-install] element. An unprompted card stays silent
+   * on a browser that cannot install; a click gets an answer either way. */
+  function showInstructions(forced) {
     var steps = instructionsFor(platform());
-    if (!steps.length) return false;
+    if (!steps.length) {
+      if (!forced) return false;
+      steps = NO_SUPPORT;
+    }
 
     buildCard(function (card) {
       addIcon(card);
@@ -457,7 +467,7 @@
    * the user dismisses the dialog without installing.
    */
   function promptInstall() {
-    if (!deferredPrompt) return showInstructions();
+    if (!deferredPrompt) return showInstructions(true);
 
     var evt = deferredPrompt;
     deferredPrompt = null;
@@ -465,7 +475,7 @@
     try {
       evt.prompt();
     } catch (e) {
-      return showInstructions();
+      return showInstructions(true);
     }
 
     if (evt.userChoice && evt.userChoice.then) {
@@ -498,7 +508,7 @@
       // the browser's own menu while the timer was running.
       if (!shouldOffer()) return;
       if (deferredPrompt) showPrompt();
-      else showInstructions();
+      else showInstructions(false);
     }, Math.max(0, CFG.install.delaySeconds) * 1000);
   }
 

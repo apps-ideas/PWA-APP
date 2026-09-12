@@ -221,7 +221,7 @@ chrome affordance from customers who already installed:
 | `manifest.json` | `max-age=300` | Short enough that a renamed app appears within a coffee break. |
 | `pwa.js` | `max-age=600` | Config is baked in, so it must not be pinned for long. |
 | `sw.js` | `no-cache` | A long-cached service worker is a fix you cannot ship. |
-| icons, splash, screenshots | `max-age=31536000, immutable` | Content-addressed by `?v=<rev>`; a re-upload changes every URL. |
+| icons, splash, screenshots | `max-age=31536000, immutable` | Content-addressed by `?v=<rev>`. The rev hashes the upload *and* the colours and initial that the maskable, splash and placeholder renders are drawn from, so changing any of them changes every URL. |
 | `/offline`, `/check`, `/health` | `no-store` | A CDN copy of "you are offline" served to an online visitor is memorable. |
 
 ## Data
