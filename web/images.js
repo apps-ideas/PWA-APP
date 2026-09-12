@@ -297,6 +297,21 @@ async function renderIcon(shop, settings, size, maskable) {
 }
 
 /** iOS startup image: the logo centred on the background colour. */
+/*
+ * Logo height on the iOS launch images, in the canvas's own pixels.
+ *
+ * A fixed height rather than a fraction of the canvas, so the logo is the same
+ * number of pixels on every one of the nineteen sizes.
+ *
+ * Worth knowing when tuning this: these canvases are device pixels, not CSS
+ * pixels. The short edges run 750 to 2048, so 100 here is 13% of the short edge
+ * on the smallest launch image and 4.9% on a 12.9" iPad — and on a 3x iPhone it
+ * lands at roughly 33 CSS pixels on screen. If the intent is "100 CSS pixels as
+ * the customer sees it", this wants multiplying by the device pixel ratio; the
+ * DPR is known per device in IOS_DEVICES.
+ */
+const SPLASH_LOGO_HEIGHT = 75;
+
 async function renderSplash(shop, settings, width, height) {
   if (!SPLASH_SIZES.has(width + 'x' + height)) {
     throw Object.assign(new Error('Unsupported splash size'), { status: 404 });
@@ -306,13 +321,7 @@ async function renderSplash(shop, settings, width, height) {
   const target = path.join(derivedDir(shop), 'splash-' + rev + '-' + width + 'x' + height + '.png');
 
   return cached(target, async () => {
-    // A third of the short edge, snapped to a size we render anyway so the
-    // composite comes out of the same cache the manifest icons use.
-    const wanted = Math.round(Math.min(width, height) / 3);
-    const logoSize = ICON_SIZES.reduce((best, s) =>
-      Math.abs(s - wanted) < Math.abs(best - wanted) ? s : best
-    );
-    const logo = await baseIcon(shop, settings, logoSize);
+    const logo = await baseIcon(shop, settings, SPLASH_LOGO_HEIGHT);
 
     return sharp({
       create: {
