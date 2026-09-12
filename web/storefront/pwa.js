@@ -175,7 +175,7 @@
   };
 
   function instructionsFor(p) {
-    return INSTRUCTIONS[p] || [];
+    return [];
   }
 
   /* Firefox on the desktop has no install support at all, and neither does an
@@ -297,10 +297,14 @@
     var width = pos === 'bottom-bar' ? 'width: auto;' : 'width: min(360px, calc(100vw - 32px));';
 
     return [
-      ':host { all: initial; }',
+      // `all: initial` resets display to inline. Restated here so the host is a
+      // block in its own right, and again in the light DOM — see hostStyle().
+      ':host { all: initial; display: block; }',
       '.card {',
       '  position: fixed; z-index: 2147483000;', anchor, width,
-      '  box-sizing: border-box; padding: 16px 18px;',
+      // Right padding reserves the close button's corner so a long title cannot
+      // run underneath it.
+      '  box-sizing: border-box; padding: 16px 36px 16px 18px;',
       '  margin-bottom: env(safe-area-inset-bottom, 0px);',
       '  background: ' + CFG.backgroundColor + '; color: ' + CFG.textColor + ';',
       '  border: 1px solid rgba(128,128,128,0.28); border-radius: 14px;',
@@ -326,10 +330,35 @@
       '.steps { margin: 6px 0 12px; padding-left: 20px; }',
       '.steps li { margin-bottom: 6px; }',
       '.close {',
-      '  position: absolute; top: 8px; right: 10px; border: 0; background: none;',
-      '  font-size: 20px; line-height: 1; cursor: pointer; color: inherit; opacity: 0.5;',
-      '}'
+      '  position: absolute; top: 6px; right: 6px;',
+      '  width: 30px; height: 30px; padding: 0;',
+      '  border: 0; border-radius: 8px; background: none; color: inherit;',
+      '  font: inherit; font-size: 20px; line-height: 1;',
+      '  cursor: pointer; opacity: 0.55;',
+      '}',
+      '.close:hover { opacity: 1; }',
+      '.close:focus-visible { outline: 2px solid ' + CFG.themeColor + '; outline-offset: 2px; opacity: 1; }'
     ].join('\n');
+  }
+
+  /*
+   * The host element's display, set in the LIGHT DOM.
+   *
+   * Not left to the `:host` rule above, for two reasons. `all: initial` resets
+   * display to `inline`, and `:host` loses to any rule in the page that matches
+   * the host — a theme carrying something as broad as `body > div { display:
+   * none }` would collapse the card, and nothing inside the shadow root could
+   * argue with it. A stylesheet in the page competes on equal terms.
+   */
+  var HOST_STYLE_ID = 'shopify-pwa-host-style';
+
+  function hostStyle() {
+    if (document.getElementById(HOST_STYLE_ID)) return;
+
+    var style = document.createElement('style');
+    style.id = HOST_STYLE_ID;
+    style.textContent = 'div#shopify-pwa-root{display:block;}';
+    (document.head || document.documentElement).appendChild(style);
   }
 
   /*
@@ -357,8 +386,27 @@
     card.setAttribute('role', 'dialog');
     card.setAttribute('aria-label', CFG.install.title);
     contentBuilder(card);
+
+    /*
+     * Appended after the content rather than before it, so the primary action
+     * comes first in the tab order — someone reaching for the card by keyboard
+     * is far more likely to want Install than Close.
+     *
+     * It dismisses rather than merely hiding: the card is on a timer, so a
+     * close that only hid it would put it back on the next page view, which is
+     * the behaviour that makes these things hated. Same contract as "Not now".
+     */
+    var close = document.createElement('button');
+    close.className = 'close';
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close');
+    close.textContent = '×';
+    close.addEventListener('click', dismiss);
+    card.appendChild(close);
+
     shadow.appendChild(card);
 
+    hostStyle();
     document.body.appendChild(uiRoot);
     return card;
   }

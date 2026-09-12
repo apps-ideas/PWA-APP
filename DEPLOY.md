@@ -932,6 +932,11 @@ Conditions are re-checked when the timer fires, not just when it is set: a
 visitor who installs from the browser's own menu during those eight seconds
 never sees the card.
 
+The card closes three ways — the **×** in its corner, **Not now**, and **Got
+it** on the instructions card. All three start the same dismissal period. None
+of them merely hides the card for the current page, because a card that returns
+on the next page view is the behaviour that makes these things hated.
+
 ### Two switches, and they do different things
 
 The **app embed** in the theme editor decides whether the manifest link and the
