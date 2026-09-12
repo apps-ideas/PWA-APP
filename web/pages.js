@@ -120,6 +120,16 @@ function check(settings, proxyBase) {
   var CFG = ${jsonForScript(config)};
   var out = document.getElementById('results');
 
+  /*
+   * The manifest URL in absolute form.
+   *
+   * CFG.manifest is root-relative ("/apps/pwa/manifest.json"), which fetch()
+   * resolves happily — but new URL() will not take a relative string as a base,
+   * it throws "Invalid base URL". Resolving it once here is what lets start_url
+   * and every icon src be resolved against it below.
+   */
+  var MANIFEST_URL = new URL(CFG.manifest, location.href).href;
+
   function report(state, label, detail) {
     var mark = state === 'pass' ? '&#10003;' : (state === 'warn' ? '!' : '&#10007;');
     var el = document.createElement('div');
@@ -145,11 +155,26 @@ function check(settings, proxyBase) {
   }
 
   /* 2. Manifest: fetched, parsed, and same-origin where it must be. */
-  fetch(CFG.manifest, { credentials: 'omit' }).then(function (r) {
+  fetch(MANIFEST_URL, { credentials: 'omit' }).then(function (r) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     var type = r.headers.get('content-type') || '';
     return r.json().then(function (m) { return { manifest: m, type: type }; });
+  }).catch(function (err) {
+    /*
+     * Load and parse failures only.
+     *
+     * This catch used to sit at the end of the whole chain, which meant any bug
+     * in the analysis below surfaced here as "could not load the manifest —
+     * check that the app proxy is configured", sending the reader off to
+     * investigate a proxy that was working perfectly. A diagnostic page that
+     * misattributes its own failures is worse than one that has none.
+     */
+    report('fail', 'Manifest loads',
+      'Could not load <code>' + esc(CFG.manifest) + '</code>: ' + esc(err.message) +
+      '. Check that the app proxy is configured and the app is installed on this shop.');
+    return null;
   }).then(function (res) {
+    if (!res) return;
     var m = res.manifest;
     report('pass', 'Manifest loads',
       '<code>' + esc(CFG.manifest) + '</code> returned <code>' + esc(res.type) + '</code>.');
@@ -159,7 +184,7 @@ function check(settings, proxyBase) {
       '</code>, display <code>' + esc(m.display) + '</code>.');
 
     /* The rule this whole app exists to satisfy. */
-    var startAbsolute = new URL(m.start_url, CFG.manifest);
+    var startAbsolute = new URL(m.start_url, MANIFEST_URL);
     if (startAbsolute.origin === location.origin) {
       report('pass', 'start_url is same-origin',
         '<code>' + esc(startAbsolute.href) + '</code> is on the storefront origin, so it is installable.');
@@ -187,7 +212,7 @@ function check(settings, proxyBase) {
       img.title = img.alt;
       img.onload = function () { done(); };
       img.onerror = function () { failures++; done(); };
-      img.src = new URL(icon.src, CFG.manifest).href;
+      img.src = new URL(icon.src, MANIFEST_URL).href;
       box.appendChild(img);
       function done() {
         if (++checked !== (m.icons || []).length) return;
@@ -201,9 +226,11 @@ function check(settings, proxyBase) {
         ? (m.screenshots || []).length + ' present, so install dialogs show the richer card.'
         : 'None set. Installing still works; the dialog is just the plain one. Upload a wide and a narrow screenshot in the app admin.');
   }).catch(function (err) {
-    report('fail', 'Manifest loads',
-      'Could not load <code>' + esc(CFG.manifest) + '</code>: ' + esc(err.message) +
-      '. Check that the app proxy is configured and the app is installed on this shop.');
+    // The manifest loaded; this page failed to finish checking it. Said plainly,
+    // with no advice about the proxy, because the proxy is not implicated.
+    report('fail', 'Manifest check incomplete',
+      'The manifest loaded, but this page could not finish inspecting it: <code>' +
+      esc(err.message) + '</code>. This is a fault in the check page, not in your store.');
   });
 
   /* 3. Service worker scope — the finding that shapes this app. */
