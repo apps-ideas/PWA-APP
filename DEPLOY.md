@@ -76,6 +76,63 @@ must agree.
 
 ---
 
+## Handing the deploy to an agent
+
+Steps 3–11 are mechanical and all happen on one box, which makes them a
+reasonable thing to delegate to Claude Code or another coding agent with SSH
+access. Steps 1, 2, 12 and 13 are not: they happen in GitHub's settings, your
+DNS provider, the Partner dashboard and the theme editor, and they need a human
+in a browser.
+
+Fill in the four values and paste this:
+
+```text
+Deploy the Storefront PWA Shopify app to my Hostinger VPS by following
+apps/pwa-app/DEPLOY.md in this repo. Work through steps 3 to 11 only.
+
+  VPS        <VPS_IP>, Ubuntu 24.04, root over ssh
+  Hostname   pwa.gaapps.cloud
+  Client ID  <CLIENT_ID>
+  Repo       git@github.com:apps-ideas/PWA-APP.git
+
+How I want this run:
+
+- Steps in order. After each one, run that step's Check and show me the
+  output. If a Check fails, stop and tell me — do not work around it and
+  do not continue to the next step.
+- I have already done steps 1 and 2 (token revoked, DNS pointed). Still
+  confirm DNS with `dig +short pwa.gaapps.cloud` before step 10.
+- Ask me for SHOPIFY_API_SECRET when you reach step 6. Do not echo it back
+  to me, do not write it anywhere but /etc/gaapps/pwa-app.env, and do not
+  put it in a command line that lands in shell history.
+
+Stop and ask me first before:
+
+- running certbot — Let's Encrypt rate-limits failures at 5 per hostname
+  per hour, so a blind retry can lock the host out for the rest of the hour;
+- any command that writes to or deletes anything under
+  /var/lib/gaapps/pwa-app — that is live merchant data, not build output;
+- overwriting /etc/gaapps/pwa-app.env if it already exists.
+
+Never do these, even if something seems to call for it:
+
+- setting PWA_VERIFY_PROXY=true (it can silently un-install the PWA for
+  every visitor);
+- adding an X-Frame-Options header anywhere in the nginx config;
+- pointing DATA_DIR anywhere but /var/lib/gaapps/pwa-app.
+
+When step 11 is done, stop. Steps 12 and 13 are mine — tell me exactly what
+to do in the Partner dashboard and the theme editor.
+```
+
+The prohibitions are there because each one is a failure an agent cannot see the
+consequences of: `PWA_VERIFY_PROXY` breaks storefronts silently rather than
+erroring, `X-Frame-Options` produces a blank panel whose console error never
+mentions nginx, and a `DATA_DIR` under `/opt` looks fine until the first
+redeploy takes the merchants' settings with it.
+
+---
+
 # The short version
 
 Fourteen steps, in order, with a check after each one. Every command is
@@ -843,6 +900,106 @@ journalctl -u pwa-app -f
 > scope stays `/apps/pwa/` and it never sees a storefront navigation. Installing
 > is unaffected. The full measurement is in
 > [`README.md`](README.md#why-shopify-strips-service-worker-allowed).
+
+---
+
+## The install prompt
+
+Once the app is deployed and the embed is on, this is the part merchants and
+their customers actually see: a card that offers to install the store.
+
+### What the admin controls
+
+**Apps → Storefront PWA → Install prompt.**
+
+| Setting | Default | Range |
+|---|---|---|
+| Show the install card | on | — |
+| Delay before it appears | 8 seconds | 0–120 |
+| Position | bottom-right | `bottom-right`, `bottom-left`, `bottom-bar` |
+| Title | "Install our app" | ≤ 60 characters |
+| Body | "Add the store to your home screen…" | ≤ 200 characters |
+| Button label | "Install" | ≤ 24 characters |
+| Dismiss period | 14 days | 0–365 |
+
+The delay is not decoration — a card that appears on first paint is a card
+customers dismiss reflexively. The dismissal is remembered in the visitor's
+`localStorage` under `shopify-pwa:dismissed-until`, so setting the period to 0
+means the card returns on the next page view, which is worth doing only while
+testing.
+
+Conditions are re-checked when the timer fires, not just when it is set: a
+visitor who installs from the browser's own menu during those eight seconds
+never sees the card.
+
+### Two switches, and they do different things
+
+The **app embed** in the theme editor decides whether the manifest link and the
+runtime are in the page at all. It is a theme change.
+
+The **Status** switch in the app admin is the one to reach for when something
+looks wrong on a live store: it leaves the embed alone and makes the manifest
+non-installable instead. A merchant can flip it in two seconds without opening
+the theme editor.
+
+### Putting an Install button in the theme
+
+Any element with `data-pwa-install` triggers the install flow:
+
+```liquid
+<button type="button" data-pwa-install>Install our app</button>
+```
+
+Handled by event delegation, so it works for markup rendered after the script
+runs — a drawer, a modal, anything a section loads later.
+
+The runtime also puts `pwa-standalone` on `<html>` when the store is already
+running as an installed app, which is the hook for hiding that button from
+customers who no longer need it:
+
+```css
+.pwa-standalone .site-header__install { display: none; }
+```
+
+### Why the button usually does not open the native dialog
+
+Chrome fires `beforeinstallprompt` — the event a custom Install button needs —
+only when a service worker with a `fetch` handler controls the page. As covered
+in [the README](README.md#why-shopify-strips-service-worker-allowed), Shopify
+strips the header that would let this app's worker control the storefront, so
+that event generally never arrives. Safari has never exposed a programmatic
+install API on any platform.
+
+So the app detects what the browser will actually allow and shows that browser's
+own directions instead — which is why installing still works everywhere in the
+capability table, just not through a single click.
+
+There is a deliberate asymmetry in when it speaks up. The **timed card stays
+silent** on a browser that cannot install, because an unprompted card offering
+something impossible is worse than no card. A **click always gets an answer**,
+even on a browser with no install path at all, because someone who clicked
+deserves to be told why nothing happened.
+
+### `window.ShopifyPWA`
+
+The runtime exposes its state for theme code and for
+`/apps/pwa/check` to report on:
+
+| Member | What it is |
+|---|---|
+| `install()` | Opens the native dialog where available, otherwise the instructions card |
+| `dismiss()` | Hides the card and starts the dismissal period |
+| `platform` | `ios-safari`, `ios-other`, `android-samsung`, `android`, desktop, or `unknown` |
+| `standalone` | Whether the store is running as an installed app right now |
+| `canPrompt` | Whether a native prompt is actually available |
+| `serviceWorker.scope` | The worker's **real** scope, once registered |
+| `instructions()` | The steps this browser needs, as data |
+| `config`, `version` | The settings baked into this copy of `pwa.js` |
+
+`canPrompt` is the honest one to branch on. A saved `beforeinstallprompt` event
+is single-use — once `prompt()` has been called it cannot be replayed, so
+`canPrompt` goes back to `false` after a visitor dismisses the dialog without
+installing.
 
 ---
 

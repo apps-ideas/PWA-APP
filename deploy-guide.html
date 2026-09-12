@@ -582,6 +582,7 @@
     <ol>
       <li><a href="#arch"><span class="n">—</span><span>What you're deploying</span></a></li>
       <li><a href="#prep"><span class="n">—</span><span>Before you start</span></a></li>
+      <li><a href="#agent"><span class="n">—</span><span>Hand it to an agent</span></a></li>
       <li><div class="rule"></div></li>
       <li><a href="#s1"><span class="n">01</span><span>Revoke the token</span></a></li>
       <li><a href="#s2"><span class="n">02</span><span>Point DNS</span></a></li>
@@ -598,6 +599,7 @@
       <li><a href="#s13"><span class="n">13</span><span>Turn on &amp; verify</span></a></li>
       <li><a href="#s14"><span class="n">14</span><span>Install &amp; back up</span></a></li>
       <li><div class="rule"></div></li>
+      <li><a href="#install"><span class="n">—</span><span>The install prompt</span></a></li>
       <li><a href="#redeploy"><span class="n">—</span><span>Redeploying</span></a></li>
       <li><a href="#trouble"><span class="n">—</span><span>Troubleshooting</span></a></li>
     </ol>
@@ -703,6 +705,72 @@
       <p class="footnote">Replace <code>pwa.gaapps.cloud</code> throughout if you
         are hosting elsewhere — it appears in <code>shopify.app.toml</code>, the
         nginx vhost and the Partner dashboard, and all three must agree.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="agent">
+      <div class="step-head">
+        <span class="step-n">REF</span>
+        <div>
+          <h2>Handing the deploy to an agent</h2>
+          <p class="step-why">Steps 3–11 are mechanical and all happen on one box.
+            Steps 1, 2, 12 and 13 need a human in a browser.</p>
+          <span class="where local">Your machine</span>
+        </div>
+      </div>
+
+      <p>Fill in the two values and paste this into Claude Code, or any coding
+        agent with SSH access to the VPS.</p>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>prompt · paste into your agent</span><button class="copy">Copy</button></div>
+<pre><code>Deploy the Storefront PWA Shopify app to my Hostinger VPS by following
+apps/pwa-app/DEPLOY.md in this repo. Work through steps 3 to 11 only.
+
+  VPS        <span class="ph">&lt;VPS_IP&gt;</span>, Ubuntu 24.04, root over ssh
+  Hostname   pwa.gaapps.cloud
+  Client ID  <span class="ph">&lt;CLIENT_ID&gt;</span>
+  Repo       git@github.com:apps-ideas/PWA-APP.git
+
+How I want this run:
+
+- Steps in order. After each one, run that step's Check and show me the
+  output. If a Check fails, stop and tell me — do not work around it and
+  do not continue to the next step.
+- I have already done steps 1 and 2 (token revoked, DNS pointed). Still
+  confirm DNS with `dig +short pwa.gaapps.cloud` before step 10.
+- Ask me for SHOPIFY_API_SECRET when you reach step 6. Do not echo it back
+  to me, do not write it anywhere but /etc/gaapps/pwa-app.env, and do not
+  put it in a command line that lands in shell history.
+
+Stop and ask me first before:
+
+- running certbot — Let's Encrypt rate-limits failures at 5 per hostname
+  per hour, so a blind retry can lock the host out for the rest of the hour;
+- any command that writes to or deletes anything under
+  /var/lib/gaapps/pwa-app — that is live merchant data, not build output;
+- overwriting /etc/gaapps/pwa-app.env if it already exists.
+
+Never do these, even if something seems to call for it:
+
+- setting PWA_VERIFY_PROXY=true (it can silently un-install the PWA for
+  every visitor);
+- adding an X-Frame-Options header anywhere in the nginx config;
+- pointing DATA_DIR anywhere but /var/lib/gaapps/pwa-app.
+
+When step 11 is done, stop. Steps 12 and 13 are mine — tell me exactly what
+to do in the Partner dashboard and the theme editor.</code></pre>
+      </div>
+
+      <div class="note info">
+        <span class="tag">Why those three prohibitions</span>
+        <p>Each is a failure an agent cannot see the consequences of.
+          <code>PWA_VERIFY_PROXY</code> breaks storefronts silently rather than
+          erroring; <code>X-Frame-Options</code> produces a blank panel whose
+          console error never mentions nginx; and a <code>DATA_DIR</code> under
+          <code>/opt</code> looks fine until the first redeploy takes the
+          merchants' settings with it.</p>
+      </div>
     </section>
 
     <!-- ============================================================ -->
@@ -1421,6 +1489,128 @@ curl -sI https://&lt;your-store&gt;/apps/pwa/icon-512.png</code></pre>
       </div>
 
       <label class="doneline"><input type="checkbox" id="done-s14" data-step="s14"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="install">
+      <div class="step-head">
+        <span class="step-n">REF</span>
+        <div>
+          <h2>The install prompt</h2>
+          <p class="step-why">Once the app is deployed and the embed is on, this is
+            the part customers actually see.</p>
+          <span class="where browser">Browser · Shopify admin &amp; theme</span>
+        </div>
+      </div>
+
+      <h3>What the admin controls</h3>
+
+      <p><strong>Apps → Storefront PWA → Install prompt.</strong></p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Setting</th><th>Default</th><th>Range</th></tr></thead>
+          <tbody>
+            <tr><td>Show the install card</td><td class="mono">on</td><td>—</td></tr>
+            <tr><td>Delay before it appears</td><td class="mono">8s</td><td class="mono">0–120</td></tr>
+            <tr><td>Position</td><td class="mono">bottom-right</td><td class="mono">bottom-right · bottom-left · bottom-bar</td></tr>
+            <tr><td>Title</td><td>"Install our app"</td><td class="mono">≤ 60 chars</td></tr>
+            <tr><td>Body</td><td>"Add the store to your home screen…"</td><td class="mono">≤ 200 chars</td></tr>
+            <tr><td>Button label</td><td>"Install"</td><td class="mono">≤ 24 chars</td></tr>
+            <tr><td>Dismiss period</td><td class="mono">14 days</td><td class="mono">0–365</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The delay is not decoration — a card that appears on first paint is a card
+        customers dismiss reflexively. The dismissal is remembered in the
+        visitor's <code>localStorage</code> under
+        <code>shopify-pwa:dismissed-until</code>, so a period of <code>0</code>
+        brings the card back on the next page view. Useful while testing, not
+        otherwise.</p>
+
+      <p>Conditions are re-checked when the timer fires, not only when it is set:
+        a visitor who installs from the browser's own menu during those eight
+        seconds never sees the card at all.</p>
+
+      <h3>Two switches, and they do different things</h3>
+
+      <p>The <strong>app embed</strong> in the theme editor decides whether the
+        manifest link and the runtime are in the page at all. That is a theme
+        change.</p>
+
+      <p>The <strong>Status</strong> switch in the app admin is the one to reach
+        for when something looks wrong on a live store: it leaves the embed alone
+        and makes the manifest non-installable instead. A merchant can flip it in
+        two seconds without opening the theme editor.</p>
+
+      <h3>Putting an Install button in the theme</h3>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>liquid · any theme section</span><button class="copy">Copy</button></div>
+<pre><code>&lt;button type="button" data-pwa-install&gt;Install our app&lt;/button&gt;</code></pre>
+      </div>
+
+      <p>Handled by event delegation, so it works for markup rendered after the
+        script runs — a drawer, a modal, anything a section loads later.</p>
+
+      <p>The runtime also puts <code>pwa-standalone</code> on <code>&lt;html&gt;</code>
+        when the store is already running as an installed app, which is the hook
+        for hiding that button from customers who no longer need it:</p>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>css · theme stylesheet</span><button class="copy">Copy</button></div>
+<pre><code>.pwa-standalone .site-header__install { display: none; }</code></pre>
+      </div>
+
+      <h3>Why the button usually does not open the native dialog</h3>
+
+      <p>Chrome fires <code>beforeinstallprompt</code> — the event a custom Install
+        button needs — only when a service worker with a <code>fetch</code>
+        handler controls the page. Shopify strips the header that would let this
+        app's worker control the storefront, so that event generally never
+        arrives. Safari has never exposed a programmatic install API on any
+        platform.</p>
+
+      <p>So the app detects what the browser will actually allow and shows that
+        browser's own directions instead — which is why installing still works
+        everywhere in the capability table, just not through a single click.</p>
+
+      <div class="note info">
+        <span class="tag">A deliberate asymmetry</span>
+        <p>The <strong>timed card stays silent</strong> on a browser that cannot
+          install — an unprompted card offering something impossible is worse than
+          no card. A <strong>click always gets an answer</strong>, even on a
+          browser with no install path at all, because someone who clicked
+          deserves to be told why nothing happened.</p>
+      </div>
+
+      <h3>window.ShopifyPWA</h3>
+
+      <p>The runtime exposes its state for theme code, and for
+        <code>/apps/pwa/check</code> to report on.</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Member</th><th>What it is</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">install()</td><td>Opens the native dialog where available, otherwise the instructions card</td></tr>
+            <tr><td class="mono">dismiss()</td><td>Hides the card and starts the dismissal period</td></tr>
+            <tr><td class="mono">platform</td><td><code>ios-safari</code>, <code>ios-other</code>, <code>android-samsung</code>, <code>android</code>, desktop, or <code>unknown</code></td></tr>
+            <tr><td class="mono">standalone</td><td>Whether the store is running as an installed app right now</td></tr>
+            <tr><td class="mono">canPrompt</td><td>Whether a native prompt is actually available</td></tr>
+            <tr><td class="mono">serviceWorker.scope</td><td>The worker's <strong>real</strong> scope, once registered</td></tr>
+            <tr><td class="mono">instructions()</td><td>The steps this browser needs, as data</td></tr>
+            <tr><td class="mono">config, version</td><td>The settings baked into this copy of <code>pwa.js</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><code>canPrompt</code> is the honest one to branch on. A saved
+        <code>beforeinstallprompt</code> event is single-use — once
+        <code>prompt()</code> has been called it cannot be replayed, so
+        <code>canPrompt</code> goes back to <code>false</code> after a visitor
+        dismisses the dialog without installing.</p>
     </section>
 
     <!-- ============================================================ -->
