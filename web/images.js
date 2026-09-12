@@ -352,18 +352,12 @@ async function renderThumbnail(shop, settings, kind) {
   const target = path.join(derivedDir(shop), 'thumb-' + kind + '-' + rev + '.png');
 
   try {
-    const buffer = await cached(target, () => {
-      if (kind === 'icon') {
-        return sharp(sourcePath(shop, 'icon'))
-          .resize(THUMB_ICON_SIZE, THUMB_ICON_SIZE, { fit: 'cover', position: 'centre' })
-          .png({ compressionLevel: 9 })
-          .toBuffer();
-      }
-      return sharp(sourcePath(shop, kind))
+    const buffer = await cached(target, () =>
+      sharp(sourcePath(shop, kind))
         .resize({ width: THUMB_SCREENSHOT_WIDTH, withoutEnlargement: true })
         .png({ compressionLevel: 9 })
-        .toBuffer();
-    });
+        .toBuffer()
+    );
     return 'data:image/png;base64,' + buffer.toString('base64');
   } catch (err) {
     // A missing source file means the settings and the disk disagree. Show no
@@ -373,14 +367,31 @@ async function renderThumbnail(shop, settings, kind) {
   }
 }
 
-/** Thumbnails for every uploaded asset, keyed the same way settings.assets is. */
+/**
+ * Previews for the admin.
+ *
+ * `icon` and `iconMaskable` are the real renders a browser will receive, not
+ * the raw upload, and they are produced even when nothing has been uploaded so
+ * the placeholder is visible too. That difference is the point: the commonest
+ * way a PWA icon goes wrong is a logo whose edges disappear under Android's
+ * circular mask, and a merchant cannot see that coming from a flat square
+ * thumbnail of the file they picked.
+ *
+ * The screenshot entries stay raw thumbnails — nothing crops those.
+ */
 async function thumbnails(shop, settings) {
-  const kinds = Object.keys(settings.assets);
-  const rendered = await Promise.all(kinds.map((kind) => renderThumbnail(shop, settings, kind)));
-  return kinds.reduce((out, kind, i) => {
-    out[kind] = rendered[i];
-    return out;
-  }, {});
+  const [icon, iconMaskable, screenshotWide, screenshotNarrow] = await Promise.all([
+    renderIcon(shop, settings, THUMB_ICON_SIZE, false)
+      .then((b) => 'data:image/png;base64,' + b.toString('base64'))
+      .catch(() => null),
+    renderIcon(shop, settings, THUMB_ICON_SIZE, true)
+      .then((b) => 'data:image/png;base64,' + b.toString('base64'))
+      .catch(() => null),
+    renderThumbnail(shop, settings, 'screenshotWide'),
+    renderThumbnail(shop, settings, 'screenshotNarrow'),
+  ]);
+
+  return { icon, iconMaskable, screenshotWide, screenshotNarrow };
 }
 
 module.exports = {

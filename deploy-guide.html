@@ -1,0 +1,1582 @@
+<title>Storefront PWA Deployment</title>
+
+<style>
+  /* ---------------------------------------------------------------------
+     Tokens are inherited verbatim from ../../deploy-guide.html — the two
+     documents sit side by side in this workspace and must read as one set.
+     Light palette on bare :root so the un-stamped "system" state resolves;
+     dark redefines tokens only.
+     --------------------------------------------------------------------- */
+  :root {
+    --ground:      #f4f7f8;
+    --surface:     #ffffff;
+    --surface-2:   #e9eff1;
+    --surface-3:   #dfe7ea;
+    --ink:         #0e171b;
+    --ink-2:       #46585f;
+    --ink-3:       #6d818a;
+    --rule:        #d3dee2;
+    --rule-strong: #b6c6cc;
+
+    --accent:      #0b6f7d;
+    --accent-ink:  #085a66;
+    --accent-soft: #dff0f2;
+
+    --danger:      #a3231b;
+    --danger-soft: #fbe6e4;
+    --warn:        #7d5300;
+    --warn-soft:   #fbf0d9;
+    --ok:          #16624a;
+    --ok-soft:     #dcefe6;
+
+    --code-bg:     #0f1a1f;
+    --code-ink:    #d6e3e8;
+    --code-dim:    #6f8891;
+    --code-rule:   #24343b;
+
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+
+    --maxw: 74ch;
+    --radius: 3px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0b1216;
+      --surface:     #111c21;
+      --surface-2:   #17252b;
+      --surface-3:   #1e2f36;
+      --ink:         #e2ecef;
+      --ink-2:       #9cb0b8;
+      --ink-3:       #7a8e97;
+      --rule:        #223338;
+      --rule-strong: #32474f;
+
+      --accent:      #4bbccd;
+      --accent-ink:  #7fd4e1;
+      --accent-soft: #10333a;
+
+      --danger:      #f0928a;
+      --danger-soft: #3a1a17;
+      --warn:        #e0b263;
+      --warn-soft:   #362a12;
+      --ok:          #6cc9a4;
+      --ok-soft:     #123026;
+
+      --code-bg:     #081014;
+      --code-ink:    #cadbe1;
+      --code-dim:    #627982;
+      --code-rule:   #1c2b31;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0b1216;
+    --surface:     #111c21;
+    --surface-2:   #17252b;
+    --surface-3:   #1e2f36;
+    --ink:         #e2ecef;
+    --ink-2:       #9cb0b8;
+    --ink-3:       #7a8e97;
+    --rule:        #223338;
+    --rule-strong: #32474f;
+
+    --accent:      #4bbccd;
+    --accent-ink:  #7fd4e1;
+    --accent-soft: #10333a;
+
+    --danger:      #f0928a;
+    --danger-soft: #3a1a17;
+    --warn:        #e0b263;
+    --warn-soft:   #362a12;
+    --ok:          #6cc9a4;
+    --ok-soft:     #123026;
+
+    --code-bg:     #081014;
+    --code-ink:    #cadbe1;
+    --code-dim:    #627982;
+    --code-rule:   #1c2b31;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------------------------------------------------------------------
+     Shell: sticky step index beside a reading column.
+     --------------------------------------------------------------------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 3.5rem;
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 6rem;
+    align-items: start;
+  }
+
+  .masthead {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--rule);
+    padding: 3.5rem 0 2rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem 3rem;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+
+  .masthead h1 {
+    margin: 0;
+    font-size: clamp(2rem, 4.4vw, 2.9rem);
+    line-height: 1.04;
+    letter-spacing: -0.033em;
+    font-weight: 680;
+    text-wrap: balance;
+  }
+  .masthead h1 .dom { color: var(--accent); }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 0.85rem;
+  }
+
+  .standfirst {
+    margin: 1rem 0 0;
+    max-width: 46ch;
+    color: var(--ink-2);
+    font-size: 1.0625rem;
+    line-height: 1.55;
+  }
+
+  .facts {
+    display: grid;
+    gap: 0.55rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--ink-2);
+    padding-bottom: 0.35rem;
+    margin: 0;
+  }
+  .facts div { display: flex; gap: 0.9rem; }
+  .facts dt {
+    color: var(--ink-3);
+    min-width: 5.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.7rem;
+    padding-top: 0.1em;
+  }
+  .facts dd { margin: 0; color: var(--ink); }
+
+  /* --------------------------------------------------------------------- */
+  .index {
+    position: sticky;
+    top: 1.5rem;
+    align-self: start;
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+    padding: 1.75rem 0 1rem;
+    font-size: 0.8125rem;
+  }
+
+  .index-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-bottom: 0.85rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .index-head span:first-child {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  #progress {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .index ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+  .index a {
+    display: grid;
+    grid-template-columns: 1.9rem 1fr;
+    gap: 0.35rem;
+    align-items: baseline;
+    padding: 0.34rem 0.5rem 0.34rem 0.25rem;
+    color: var(--ink-2);
+    text-decoration: none;
+    border-radius: var(--radius);
+    line-height: 1.35;
+  }
+  .index a .n {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .index a:hover { background: var(--surface-2); color: var(--ink); }
+  .index a.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+  .index a.on .n { color: var(--accent); }
+  .index a.done .n::after { content: "✓"; margin-left: 0.15rem; color: var(--ok); }
+  .index .rule { height: 1px; background: var(--rule); margin: 0.5rem 0.25rem; }
+
+  main { max-width: var(--maxw); padding-top: 1.75rem; }
+
+  /* ---------------------------------------------------------------------
+     Steps. Numbering is load-bearing — these run in order and later steps
+     depend on earlier ones — so the numerals are shown, not decorative.
+     --------------------------------------------------------------------- */
+  .step { padding: 3.25rem 0 0; scroll-margin-top: 1.5rem; }
+  .step + .step { border-top: 1px solid var(--rule); }
+
+  .step-head { display: flex; gap: 1rem; align-items: flex-start; }
+
+  .step-n {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid transparent;
+    padding: 0.3rem 0.5rem;
+    border-radius: var(--radius);
+    line-height: 1;
+    margin-top: 0.42rem;
+    flex: none;
+    letter-spacing: 0.04em;
+  }
+
+  .step h2 {
+    margin: 0;
+    font-size: 1.6rem;
+    line-height: 1.2;
+    letter-spacing: -0.022em;
+    font-weight: 660;
+    text-wrap: balance;
+  }
+  .step h3 {
+    margin: 2rem 0 0;
+    font-size: 1rem;
+    letter-spacing: -0.008em;
+    font-weight: 660;
+  }
+
+  .step-why {
+    margin: 0.4rem 0 0;
+    color: var(--ink-2);
+    font-size: 0.9375rem;
+  }
+
+  main p { margin: 1rem 0 0; }
+  main ul, main ol.body { margin: 1rem 0 0; padding-left: 1.15rem; display: grid; gap: 0.4rem; }
+  main li { padding-left: 0.15rem; }
+  main li::marker { color: var(--ink-3); }
+
+  a { color: var(--accent-ink); text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.855em;
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    padding: 0.08em 0.34em;
+    border-radius: var(--radius);
+    word-break: break-word;
+  }
+
+  /* ---------------------------------------------------------------------
+     WHERE chip. This runbook moves between three machines and running a
+     block in the wrong place is a real failure, so the location rides in
+     the step head rather than being buried in prose.
+     --------------------------------------------------------------------- */
+  .where {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.65rem 0 0;
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--radius);
+    padding: 0.18rem 0.5rem;
+    width: fit-content;
+  }
+  .where::before {
+    content: "";
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: var(--ink-3);
+    flex: none;
+  }
+  .where.vps::before     { background: var(--accent); }
+  .where.local::before   { background: var(--warn); }
+  .where.browser::before { background: var(--ok); }
+  .where.none::before    { background: transparent; border: 1px solid var(--rule-strong); }
+
+  /* --------------------------------------------------------------------- */
+  .cmd {
+    margin: 1.1rem 0 0;
+    background: var(--code-bg);
+    border: 1px solid var(--code-rule);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .cmd-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.42rem 0.5rem 0.42rem 0.8rem;
+    border-bottom: 1px solid var(--code-rule);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--code-dim);
+  }
+  .cmd-head button {
+    font: inherit;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--code-dim);
+    border: 1px solid var(--code-rule);
+    padding: 0.24rem 0.55rem;
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .cmd-head button:hover { color: var(--code-ink); border-color: var(--code-dim); }
+  .cmd-head button.copied { color: var(--ok); border-color: var(--ok); }
+
+  .cmd pre {
+    margin: 0;
+    padding: 0.85rem 1rem 0.95rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: var(--code-ink);
+    tab-size: 2;
+  }
+  .cmd .c { color: var(--code-dim); }
+  .cmd .ph { color: var(--warn); }
+
+  /* Request flow — same ink as a command block, but not a command. */
+  .diagram {
+    margin: 1.4rem 0 0;
+    background: var(--code-bg);
+    border: 1px solid var(--code-rule);
+    border-radius: var(--radius);
+    overflow-x: auto;
+  }
+  .diagram pre {
+    margin: 0;
+    padding: 1.1rem 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    line-height: 1.7;
+    color: var(--code-ink);
+  }
+  .diagram .dim { color: var(--code-dim); }
+
+  /* ---------------------------------------------------------------------
+     CHECK. The exit condition of a step, not an aside — every step has
+     exactly one, and it is the thing that says whether to continue. Given
+     its own shape so it never reads as another callout.
+     --------------------------------------------------------------------- */
+  .check {
+    margin: 1.3rem 0 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.15rem 0.85rem;
+    align-items: baseline;
+    padding: 0.75rem 0 0.15rem;
+    border-top: 2px solid var(--ok);
+    font-size: 0.9rem;
+  }
+  .check .lab {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--ok);
+    white-space: nowrap;
+  }
+  .check p { margin: 0; }
+  .check p + p { margin-top: 0.5rem; color: var(--ink-2); }
+
+  /* ---------------------------------------------------------------------
+     Callouts. Square, label-led — deliberately not a rounded card with an
+     accent rail, which is the shape every generated doc reaches for.
+     --------------------------------------------------------------------- */
+  .note {
+    margin: 1.3rem 0 0;
+    padding: 0.9rem 1.1rem 1rem;
+    border: 1px solid var(--rule);
+    border-top-width: 3px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    font-size: 0.9rem;
+  }
+  .note > p:first-of-type { margin-top: 0.15rem; }
+  .note .tag {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    font-weight: 700;
+    display: block;
+  }
+  .note.danger { border-top-color: var(--danger); background: var(--danger-soft); }
+  .note.danger .tag { color: var(--danger); }
+  .note.warn   { border-top-color: var(--warn);   background: var(--warn-soft); }
+  .note.warn .tag { color: var(--warn); }
+  .note.ok     { border-top-color: var(--ok);     background: var(--ok-soft); }
+  .note.ok .tag { color: var(--ok); }
+  .note.info   { border-top-color: var(--accent); background: var(--accent-soft); }
+  .note.info .tag { color: var(--accent-ink); }
+
+  /* --------------------------------------------------------------------- */
+  .tablewrap { margin: 1.2rem 0 0; overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.845rem; background: var(--surface); }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    background: var(--surface-2);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.mono, th.mono { font-family: var(--font-mono); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+  td.ctr { text-align: center; }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    padding: 0.12rem 0.42rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--rule-strong);
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .pill.yes { border-color: var(--ok); color: var(--ok); }
+  .pill.no  { border-color: var(--danger); color: var(--danger); }
+
+  /* --------------------------------------------------------------------- */
+  .doneline {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 1.6rem 0 0;
+    padding-top: 0.9rem;
+    border-top: 1px dashed var(--rule);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    cursor: pointer;
+    user-select: none;
+    width: fit-content;
+  }
+  .doneline input { accent-color: var(--accent); width: 0.95rem; height: 0.95rem; cursor: pointer; }
+  .doneline:hover { color: var(--ink-2); }
+
+  .footnote { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--ink-3); }
+
+  footer {
+    grid-column: 1 / -1;
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: 1fr; gap: 0; padding: 0 1.25rem 4rem; }
+    .index {
+      position: static;
+      max-height: none;
+      padding: 1.5rem 0 1.25rem;
+      border-bottom: 1px solid var(--rule);
+    }
+    .index ol { grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); display: grid; gap: 0.15rem; }
+    .index .rule { display: none; }
+    .masthead { padding-top: 2.25rem; }
+    main { max-width: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Single-app runbook · Ubuntu 24.04 · 14 steps</p>
+      <h1>Deploying <span class="dom">Storefront PWA</span></h1>
+      <p class="standfirst">
+        One Node process, one nginx vhost, one certificate. No database, no
+        frontend build. Work top to bottom — each step ends with the check that
+        says whether to continue.
+      </p>
+    </div>
+    <dl class="facts">
+      <div><dt>Host</dt><dd>pwa.gaapps.cloud</dd></div>
+      <div><dt>Port</dt><dd>3007 · 127.0.0.1 only</dd></div>
+      <div><dt>Code</dt><dd>/opt/gaapps/pwa-app</dd></div>
+      <div><dt>State</dt><dd>/var/lib/gaapps/pwa-app</dd></div>
+      <div><dt>Build</dt><dd>none</dd></div>
+    </dl>
+  </header>
+
+  <nav class="index" aria-label="Steps">
+    <div class="index-head">
+      <span>Progress</span>
+      <span id="progress">0 / 14</span>
+    </div>
+    <ol>
+      <li><a href="#arch"><span class="n">—</span><span>What you're deploying</span></a></li>
+      <li><a href="#prep"><span class="n">—</span><span>Before you start</span></a></li>
+      <li><div class="rule"></div></li>
+      <li><a href="#s1"><span class="n">01</span><span>Revoke the token</span></a></li>
+      <li><a href="#s2"><span class="n">02</span><span>Point DNS</span></a></li>
+      <li><a href="#s3"><span class="n">03</span><span>Base system</span></a></li>
+      <li><a href="#s4"><span class="n">04</span><span>Account &amp; directories</span></a></li>
+      <li><a href="#s5"><span class="n">05</span><span>Get the code up</span></a></li>
+      <li><a href="#s6"><span class="n">06</span><span>Secrets file</span></a></li>
+      <li><a href="#s7"><span class="n">07</span><span>Dependencies</span></a></li>
+      <li><a href="#s8"><span class="n">08</span><span>Start the service</span></a></li>
+      <li><a href="#s9"><span class="n">09</span><span>nginx in front</span></a></li>
+      <li><a href="#s10"><span class="n">10</span><span>Certificate</span></a></li>
+      <li><a href="#s11"><span class="n">11</span><span>No X-Frame-Options</span></a></li>
+      <li><a href="#s12"><span class="n">12</span><span>Register with Shopify</span></a></li>
+      <li><a href="#s13"><span class="n">13</span><span>Turn on &amp; verify</span></a></li>
+      <li><a href="#s14"><span class="n">14</span><span>Install &amp; back up</span></a></li>
+      <li><div class="rule"></div></li>
+      <li><a href="#redeploy"><span class="n">—</span><span>Redeploying</span></a></li>
+      <li><a href="#trouble"><span class="n">—</span><span>Troubleshooting</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section class="step" id="arch">
+      <div class="step-head">
+        <span class="step-n">REF</span>
+        <div>
+          <h2>What you are deploying</h2>
+          <p class="step-why">One Express process behind nginx. The only thing on
+            the box you cannot recreate from git is the data directory.</p>
+        </div>
+      </div>
+
+      <div class="diagram">
+<pre>browser / Shopify ──▶ nginx :443 (TLS)  ──▶ node :3007 <span class="dim">(127.0.0.1 only)</span>
+                      pwa.gaapps.cloud       /opt/gaapps/pwa-app
+                                                     │
+                                                     ▼
+                                          /var/lib/gaapps/pwa-app
+                                          <span class="dim">shops/*.json + assets/&lt;shop&gt;/</span></pre>
+      </div>
+
+      <p>Two HTTP surfaces on that one port, with different trust models.
+        <code>/pwa/proxy/*</code> is public and sessionless — Shopify's app proxy
+        forwards <code>https://&lt;shop&gt;/apps/pwa/*</code> there, and it serves the
+        manifest, icons, iOS splash images and the storefront script.
+        <code>/</code> and <code>/api/*</code> are the embedded admin, authorised
+        per request by an App Bridge session token.</p>
+
+      <p>The app requests <strong>no Admin API scopes</strong> and stores no access
+        token, so there is no OAuth token database to provision or back up.</p>
+
+      <h3>What works once it is deployed</h3>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Capability</th>
+              <th class="ctr">Desktop Chrome / Edge</th>
+              <th class="ctr">Android Chrome</th>
+              <th class="ctr">iOS Safari 16.4+</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Installable</td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill yes">yes</span></td></tr>
+            <tr><td>Home screen / dock icon</td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill yes">maskable</span></td><td class="ctr"><span class="pill yes">yes</span></td></tr>
+            <tr><td>Standalone window</td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill yes">yes</span></td></tr>
+            <tr><td>Splash screen</td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill yes">generated</span></td></tr>
+            <tr><td>Shortcuts</td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill yes">yes</span></td><td class="ctr"><span class="pill no">no</span></td></tr>
+            <tr><td>In-page Install button opens the native dialog</td><td class="ctr"><span class="pill no">no</span></td><td class="ctr"><span class="pill no">no</span></td><td class="ctr"><span class="pill no">never</span></td></tr>
+            <tr><td>Offline browsing</td><td class="ctr"><span class="pill no">no</span></td><td class="ctr"><span class="pill no">no</span></td><td class="ctr"><span class="pill no">no</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note info">
+        <span class="tag">Read this before you promise anything</span>
+        <p>Offline browsing will not work, and on a stock Shopify storefront it
+          cannot be made to. A service worker only controls pages at or below
+          the path it is served from; this app's worker is served through the
+          app proxy at <code>/apps/pwa/</code>, so it controls
+          <code>/apps/pwa/</code> and nothing else. Widening that is what the
+          <code>Service-Worker-Allowed: /</code> header is for — the server sends
+          it and <strong>Shopify strips it</strong>, measured against a live
+          storefront. Installing is unaffected: Chrome dropped the service worker
+          requirement in Chrome 108 (Android) and 112 (desktop).</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="prep">
+      <div class="step-head">
+        <span class="step-n">REF</span>
+        <div>
+          <h2>Before you start</h2>
+          <p class="step-why">Four values are the only things in this runbook that
+            are not copy-paste. Collect them first.</p>
+        </div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Placeholder</th><th>Where it comes from</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">&lt;VPS_IP&gt;</td><td>Hostinger panel → your VPS → IPv4 address</td></tr>
+            <tr><td class="mono">&lt;CLIENT_ID&gt;</td><td>Partner dashboard → Storefront PWA → Client credentials. Already in <code>shopify.app.toml</code></td></tr>
+            <tr><td class="mono">&lt;CLIENT_SECRET&gt;</td><td>Partner dashboard, same page. Shown there only</td></tr>
+            <tr><td class="mono">&lt;your-store&gt;</td><td>Your storefront domain, e.g. <code>www.example.com</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>You also need a Hostinger VPS running Ubuntu 24.04 with root SSH, DNS
+        control for the domain, and the Shopify CLI on your workstation
+        (<code>npm i -g @shopify/cli</code>).</p>
+
+      <p class="footnote">Replace <code>pwa.gaapps.cloud</code> throughout if you
+        are hosting elsewhere — it appears in <code>shopify.app.toml</code>, the
+        nginx vhost and the Partner dashboard, and all three must agree.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s1">
+      <div class="step-head">
+        <span class="step-n">01</span>
+        <div>
+          <h2>Revoke the leaked GitHub token</h2>
+          <p class="step-why">This repo's remote has a personal access token in the
+            URL. It is in every copy of the repo, including the one about to go
+            on a public-facing server.</p>
+          <span class="where local">Your machine</span>
+        </div>
+      </div>
+
+      <div class="note danger">
+        <span class="tag">Do this before anything reaches the server</span>
+        <p>The <code>origin</code> remote reads
+          <code>https://ghp_…@github.com/apps-ideas/PWA-APP.git</code>.
+          <code>git remote -v</code> prints it in full to anyone with shell
+          access. Revoke it at GitHub → <strong>Settings → Developer settings →
+          Personal access tokens</strong>, then repoint the checkout.</p>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · your machine</span><button class="copy">Copy</button></div>
+<pre><code>git remote set-url origin git@github.com:apps-ideas/PWA-APP.git</code></pre>
+      </div>
+
+      <p>Use a <strong>deploy key</strong> for the server in step 5, not a PAT — a
+        deploy key is scoped to one repository and can be read-only. Nothing else
+        in this app carries a secret in source; <code>SHOPIFY_API_SECRET</code> is
+        read from the environment and is not in git.</p>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p><code>git remote -v</code> shows no <code>ghp_…</code> in the URL.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s1" data-step="s1"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s2">
+      <div class="step-head">
+        <span class="step-n">02</span>
+        <div>
+          <h2>Point DNS at the VPS</h2>
+          <p class="step-why">Early, because certbot in step 10 fails if the name
+            does not resolve yet — and failures are rate-limited.</p>
+          <span class="where none">Your DNS provider</span>
+        </div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Type</th><th>Name</th><th>Value</th><th>TTL</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">A</td><td class="mono">pwa</td><td class="mono">&lt;VPS_IP&gt;</td><td class="mono">300</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Add an AAAA record too if the VPS has IPv6 — the nginx vhost listens on
+        both. Raise the TTL once everything is verified.</p>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · anywhere</span><button class="copy">Copy</button></div>
+<pre><code>dig +short pwa.gaapps.cloud</code></pre>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p>It prints <code>&lt;VPS_IP&gt;</code>.</p>
+        <p>Do not go past step 9 until it does. Let's Encrypt allows five failures
+          per hostname per hour, then locks you out of retrying.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s2" data-step="s2"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s3">
+      <div class="step-head">
+        <span class="step-n">03</span>
+        <div>
+          <h2>Install the base system</h2>
+          <p class="step-why">Packages, Node 22, firewall. Port 3007 stays closed —
+            the app binds to <code>127.0.0.1</code> and is reached through nginx.</p>
+          <span class="where vps">VPS · as root</span>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>apt update &amp;&amp; apt upgrade -y
+apt install -y curl git nginx ufw
+
+# Node 22 LTS. Ubuntu's own nodejs is older than this app's engines field
+# (">=20"), and .npmrc sets engine-strict=true — so npm install will refuse
+# outright rather than warn.
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt install -y nodejs
+
+ufw allow OpenSSH &amp;&amp; ufw allow 'Nginx Full' &amp;&amp; ufw --force enable</code></pre>
+      </div>
+
+      <div class="note warn">
+        <span class="tag">Hostinger panel firewall</span>
+        <p>If you use the panel's own firewall as well as <code>ufw</code>, allow
+          22, 80 and 443 there too. The two are independent, and a rule missing
+          from either blocks the traffic. A panel firewall that omits 80 is a
+          common reason certbot fails in step 10 with no obvious cause.</p>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p><code>node -v</code> prints <code>v22.x</code>. Anything below v20 makes
+          step 7 fail outright.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s3" data-step="s3"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s4">
+      <div class="step-head">
+        <span class="step-n">04</span>
+        <div>
+          <h2>Create the service account and directories</h2>
+          <p class="step-why">The split between <code>/opt</code> and
+            <code>/var/lib</code> is the load-bearing decision in this whole
+            runbook.</p>
+          <span class="where vps">VPS · as root</span>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>adduser --system --group --no-create-home --home /opt/gaapps gaapps
+
+mkdir -p /opt/gaapps               # code — replaced on every deploy
+mkdir -p /etc/gaapps               # secrets, root-owned
+mkdir -p /var/lib/gaapps/pwa-app   # state — must survive a deploy
+
+chown -R gaapps:gaapps /opt/gaapps /var/lib/gaapps
+chmod 750 /etc/gaapps</code></pre>
+      </div>
+
+      <p><code>/var/lib/gaapps/pwa-app</code> holds every merchant's settings,
+        their uploaded logo and screenshots, and the icons and splash screens
+        rendered from them. Put it under <code>/opt</code> and the next deploy
+        wipes it.</p>
+
+      <h3>On a 1 GB plan, add swap</h3>
+
+      <p>The first time a shop is configured, <code>sharp</code> renders nineteen
+        iOS launch images, the largest at 2048×2732. Without swap that can
+        OOM-kill the service on the smallest plans.</p>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>fallocate -l 2G /swapfile &amp;&amp; chmod 600 /swapfile
+mkswap /swapfile &amp;&amp; swapon /swapfile
+echo '/swapfile none swap sw 0 0' &gt;&gt; /etc/fstab</code></pre>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p><code>ls -ld /var/lib/gaapps/pwa-app</code> shows
+          <code>gaapps gaapps</code>.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s4" data-step="s4"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s5">
+      <div class="step-head">
+        <span class="step-n">05</span>
+        <div>
+          <h2>Get the code onto the server</h2>
+          <p class="step-why">A read-only deploy key, so no token ends up in a
+            remote URL a second time.</p>
+          <span class="where vps">VPS · as root</span>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>mkdir -p /opt/gaapps/.ssh &amp;&amp; chown gaapps:gaapps /opt/gaapps/.ssh
+sudo -u gaapps ssh-keygen -t ed25519 -f /opt/gaapps/.ssh/id_ed25519 -N "" -C "pwa-app-vps"
+cat /opt/gaapps/.ssh/id_ed25519.pub</code></pre>
+      </div>
+
+      <p>Add that public key to the repo on GitHub under <strong>Settings → Deploy
+        keys</strong>, read-only. Then clone:</p>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>cd /opt/gaapps
+sudo -u gaapps git clone git@github.com:apps-ideas/PWA-APP.git pwa-app</code></pre>
+      </div>
+
+      <h3>No repo access? Copy the folder instead</h3>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>powershell · your machine</span><button class="copy">Copy</button></div>
+<pre><code># from d:\app\01-hostinger-apps\apps
+scp -r pwa-app root@&lt;VPS_IP&gt;:/opt/gaapps/</code></pre>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>rm -rf /opt/gaapps/pwa-app/node_modules /opt/gaapps/pwa-app/.env
+chown -R gaapps:gaapps /opt/gaapps/pwa-app</code></pre>
+      </div>
+
+      <p>Deleting the local <code>.env</code> matters. It is gitignored, so a clone
+        never has one — but <code>scp -r</code> copies it, and
+        <code>web/load-env.js</code> reads it. Real environment variables win over
+        it, so it is not a functional problem; it is a stale copy of your secrets
+        sitting on a public-facing server for no reason.</p>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p><code>ls /opt/gaapps/pwa-app/web/server.js</code> exists.</p>
+        <p>The directory name must be exactly <code>pwa-app</code> — the systemd
+          unit and the nginx vhost reference it literally.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s5" data-step="s5"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s6">
+      <div class="step-head">
+        <span class="step-n">06</span>
+        <div>
+          <h2>Write the secrets file</h2>
+          <p class="step-why">Read by systemd and injected into the process. Never
+            deployed as a file inside the checkout.</p>
+          <span class="where vps">VPS · as root</span>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>cat &gt; /etc/gaapps/pwa-app.env &lt;&lt;'EOF'
+NODE_ENV=production
+PORT=3007
+SHOPIFY_API_KEY=&lt;CLIENT_ID&gt;
+SHOPIFY_API_SECRET=&lt;CLIENT_SECRET&gt;
+DATA_DIR=/var/lib/gaapps/pwa-app
+PWA_VERIFY_PROXY=false
+EOF
+
+nano /etc/gaapps/pwa-app.env          # replace the two placeholders
+chown root:gaapps /etc/gaapps/pwa-app.env
+chmod 640 /etc/gaapps/pwa-app.env</code></pre>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Variable</th><th>Required</th><th>Consequence of getting it wrong</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">SHOPIFY_API_KEY</td><td>yes</td><td>App Bridge never initialises; the embedded admin is a blank frame in Shopify admin</td></tr>
+            <tr><td class="mono">SHOPIFY_API_SECRET</td><td>yes</td><td>Session tokens cannot be verified — the admin loads but every save is rejected, and the uninstall webhook is ignored, so merchant logos are never deleted</td></tr>
+            <tr><td class="mono">DATA_DIR</td><td>yes</td><td>Defaults to <code>&lt;app&gt;/data</code>, inside the read-only <code>/opt</code> — settings vanish on the first redeploy</td></tr>
+            <tr><td class="mono">PORT</td><td>no</td><td>Defaults to 3007; must match the nginx <code>proxy_pass</code></td></tr>
+            <tr><td class="mono">PWA_VERIFY_PROXY</td><td>no</td><td>See below</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="tag">systemd env files are not shell scripts</span>
+        <p><code>KEY=value</code>, no <code>export</code>, no quotes. A stray quote
+          becomes part of the value and then fails exactly as though the secret
+          were wrong.</p>
+      </div>
+
+      <div class="note danger">
+        <span class="tag">Leave PWA_VERIFY_PROXY=false for the first deploy</span>
+        <p>Everything under <code>/apps/pwa/</code> is a public static file the
+          browser fetches with no session — a <code>&lt;link rel="manifest"&gt;</code>
+          fetch is uncredentialed by spec — so there is nothing there to
+          authenticate. A signature mismatch would not fail loudly either: it
+          would un-install the PWA for every visitor at once, with nothing on the
+          storefront to explain why. Turn it on only after step 13 passes, and
+          recheck <code>/apps/pwa/health</code> immediately afterwards.</p>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p><code>grep -c '&lt;CLIENT' /etc/gaapps/pwa-app.env</code> returns
+          <code>0</code> — both placeholders are gone.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s6" data-step="s6"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s7">
+      <div class="step-head">
+        <span class="step-n">07</span>
+        <div>
+          <h2>Install dependencies, prove the data directory</h2>
+          <p class="step-why">Two dependencies and no build step. The data
+            directory is created here because a read-only <code>/opt</code> will
+            not create it later.</p>
+          <span class="where vps">VPS · as root</span>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>cd /opt/gaapps/pwa-app
+sudo -u gaapps npm install
+
+install -d -o gaapps -g gaapps /var/lib/gaapps/pwa-app
+sudo -u gaapps env DATA_DIR=/var/lib/gaapps/pwa-app \
+  node -e "require('./web/settings.js'); console.log('data dir writable')"</code></pre>
+      </div>
+
+      <div class="note info">
+        <span class="tag">There is no build step, and that is not an omission</span>
+        <p>Unlike the other apps in this fleet, the admin page is server-rendered
+          and reads <code>SHOPIFY_API_KEY</code> at request time. Nothing needs
+          the key present at install time, and rotating the key later takes a
+          restart rather than a rebuild.</p>
+      </div>
+
+      <p>If <code>sharp</code> fails to install, its prebuilt native binary
+        download is being blocked:</p>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>apt install -y build-essential libvips-dev
+cd /opt/gaapps/pwa-app &amp;&amp; sudo -u gaapps npm install --build-from-source sharp</code></pre>
+      </div>
+
+      <div class="note warn">
+        <span class="tag">No lockfile is committed</span>
+        <p><code>npm install</code> resolves fresh on every deploy, so the server
+          can end up on different patch versions from your machine. Run
+          <code>npm install</code> locally once, commit the generated
+          <code>package-lock.json</code>, and switch this step to
+          <code>npm ci</code>.</p>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p>It prints <code>data dir writable</code>, and
+          <code>ls /var/lib/gaapps/pwa-app</code> shows <code>shops</code> and
+          <code>assets</code>.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s7" data-step="s7"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s8">
+      <div class="step-head">
+        <span class="step-n">08</span>
+        <div>
+          <h2>Start the service</h2>
+          <p class="step-why">Hardened unit: <code>/opt</code> read-only, one
+            writable path. Prove it listens locally before involving nginx.</p>
+          <span class="where vps">VPS · as root</span>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>cat &gt; /etc/systemd/system/pwa-app.service &lt;&lt;'EOF'
+[Unit]
+Description=Storefront PWA (Shopify embedded app)
+Documentation=https://pwa.gaapps.cloud/healthz
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gaapps
+Group=gaapps
+
+# No /web suffix: server.js resolves everything from __dirname, and require()
+# needs node_modules at the repo root. Do NOT run this from inside web/.
+WorkingDirectory=/opt/gaapps/pwa-app
+EnvironmentFile=/etc/gaapps/pwa-app.env
+ExecStart=/usr/bin/node web/server.js
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pwa-app
+
+# ProtectSystem=strict makes /opt read-only, which is what we want: everything
+# this app writes lives under DATA_DIR in /var/lib so it survives a redeploy.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/gaapps/pwa-app
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now pwa-app
+curl -s localhost:3007/healthz</code></pre>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p>The JSON shows <code>"apiKey":true</code>,
+          <code>"apiSecret":true</code> and
+          <code>"dataDir":"/var/lib/gaapps/pwa-app"</code>.</p>
+        <p>A <code>false</code> on either key means step 6 did not take effect —
+          <code>systemctl restart pwa-app</code>. A <em>reload</em> will not do
+          it: systemd re-reads <code>EnvironmentFile</code> only on a restart.
+          <code>EROFS</code> or <code>EACCES</code> in
+          <code>journalctl -u pwa-app</code> means a write is landing outside
+          <code>ReadWritePaths</code>.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s8" data-step="s8"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s9">
+      <div class="step-head">
+        <span class="step-n">09</span>
+        <div>
+          <h2>Put nginx in front</h2>
+          <p class="step-why">HTTP only here on purpose — <code>certbot --nginx</code>
+            adds the TLS block itself in the next step.</p>
+          <span class="where vps">VPS · as root</span>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>cat &gt; /etc/nginx/sites-available/pwa.gaapps.cloud.conf &lt;&lt;'EOF'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name pwa.gaapps.cloud;
+
+    access_log /var/log/nginx/pwa.gaapps.cloud.access.log;
+    error_log  /var/log/nginx/pwa.gaapps.cloud.error.log;
+
+    # Merchants upload a logo and up to two screenshots. The app caps the body
+    # at 8 MB in express.raw; keep the two in step or nginx rejects the upload
+    # first, with an HTML error page the admin cannot parse.
+    client_max_body_size 9m;
+
+    location / {
+        proxy_pass http://127.0.0.1:3007;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header Connection        "";
+
+        # sharp renders icons and the nineteen iOS launch images on first
+        # request. Each is cached to disk afterwards, but a cold store asked
+        # for a 2048x2732 splash can outlast a tight timeout.
+        proxy_read_timeout 60s;
+
+        # The app picks Cache-Control per route — a year for content-addressed
+        # icons, no-cache for the service worker. Let them through untouched.
+        proxy_pass_header Cache-Control;
+    }
+}
+EOF
+
+ln -sf /etc/nginx/sites-available/pwa.gaapps.cloud.conf /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+
+# `ln -sf` creates dangling links without complaining and nginx skips them
+# silently, so verify rather than trusting the reload:
+for l in /etc/nginx/sites-enabled/*; do [ -e "$l" ] || echo "BROKEN: $l"; done
+
+nginx -t &amp;&amp; systemctl reload nginx</code></pre>
+      </div>
+
+      <div class="note warn">
+        <span class="tag">The .conf suffix must appear on both sides</span>
+        <p>Mismatch it and the symlink dangles. nginx omits broken symlinks from a
+          glob include <em>without an error</em>, so <code>nginx -t</code> reports
+          "syntax is ok" and the reload succeeds while no vhost is loaded at all.
+          The first symptom is usually certbot saying <em>could not automatically
+          find a matching server block</em>.</p>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p>The loop prints nothing, and
+          <code>curl -sI http://pwa.gaapps.cloud/healthz</code> returns 200.</p>
+        <p><code>nginx -t</code> passing is <strong>not</strong> sufficient
+          evidence on its own — see above.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s9" data-step="s9"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s10">
+      <div class="step-head">
+        <span class="step-n">10</span>
+        <div>
+          <h2>Issue the certificate</h2>
+          <p class="step-why">HTTPS is mandatory: a manifest is only honoured in a
+            secure context, and Shopify rejects an <code>http://</code> app URL.</p>
+          <span class="where vps">VPS · as root</span>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>apt install -y certbot python3-certbot-nginx
+certbot --nginx --agree-tos -m you@example.com --redirect -d pwa.gaapps.cloud
+
+systemctl status certbot.timer     # renewal is automatic</code></pre>
+      </div>
+
+      <p>Already running the rest of the fleet on this box? Use
+        <code>--expand</code> to add the name to the existing certificate rather
+        than issuing a second one.</p>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p><code>curl -s https://pwa.gaapps.cloud/healthz</code> returns the same
+          JSON as step 8.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s10" data-step="s10"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s11">
+      <div class="step-head">
+        <span class="step-n">11</span>
+        <div>
+          <h2>Do not add X-Frame-Options</h2>
+          <p class="step-why">Nothing to run. A standing rule for this host, and
+            the reason a working deploy can still show a blank panel.</p>
+          <span class="where none">Nothing to run</span>
+        </div>
+      </div>
+
+      <div class="note danger">
+        <span class="tag">Standing rule</span>
+        <p>The app renders inside the Shopify admin iframe and sends its own
+          <code>Content-Security-Policy: frame-ancestors</code> naming the
+          requesting shop. An <code>X-Frame-Options</code> header added at the
+          nginx layer overrides that, and the app becomes a blank panel in Shopify
+          admin with a browser console error that never mentions nginx. Do not add
+          one, and check that no hardening snippet you include adds one for you.</p>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p><code>curl -sI https://pwa.gaapps.cloud/ | grep -i x-frame</code>
+          returns nothing.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s11" data-step="s11"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s12">
+      <div class="step-head">
+        <span class="step-n">12</span>
+        <div>
+          <h2>Register the app with Shopify</h2>
+          <p class="step-why">The server is answering; Shopify still has to be told
+            to send traffic to it.</p>
+          <span class="where local">Your machine</span>
+        </div>
+      </div>
+
+      <p>Confirm <code>shopify.app.toml</code> names the host you just set up:</p>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>toml · shopify.app.toml</span><button class="copy">Copy</button></div>
+<pre><code>application_url = "https://pwa.gaapps.cloud"
+
+[auth]
+redirect_urls = [ "https://pwa.gaapps.cloud/api/auth" ]
+
+[app_proxy]
+url = "https://pwa.gaapps.cloud/pwa/proxy"
+subpath = "pwa"
+prefix = "apps"</code></pre>
+      </div>
+
+      <div class="note danger">
+        <span class="tag">The /pwa/proxy suffix is not decorative</span>
+        <p>Shopify forwards only the path <em>after</em> the subpath, and the
+          backend mounts its storefront router at <code>/pwa/proxy</code> — so
+          <code>/apps/pwa/manifest.json</code> on the storefront must resolve to
+          <code>https://pwa.gaapps.cloud/pwa/proxy/manifest.json</code>. Drop the
+          suffix and every storefront page links to a 404 manifest, which Chrome
+          reports as a broken site rather than simply an uninstallable one.</p>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · your machine, in apps/pwa-app</span><button class="copy">Copy</button></div>
+<pre><code>npm install
+shopify app config push
+shopify app deploy           # uploads the theme app embed extension</code></pre>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p>The Partner dashboard shows the new URLs under <strong>Configuration</strong>
+          and <strong>App proxy</strong>.</p>
+        <p>Then install — or reinstall — the app once from the Shopify admin.
+          Changing redirect URLs invalidates existing OAuth grants.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s12" data-step="s12"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s13">
+      <div class="step-head">
+        <span class="step-n">13</span>
+        <div>
+          <h2>Turn it on in the store, and verify</h2>
+          <p class="step-why">Three clicks in the admin, then the checks that
+            exercise Shopify's proxy rather than just the server.</p>
+          <span class="where browser">Browser · Shopify admin</span>
+        </div>
+      </div>
+
+      <ol class="body">
+        <li><strong>Theme editor → App embeds → enable "Storefront PWA".</strong>
+          Nothing reaches the storefront until this is on — it is what puts
+          <code>&lt;link rel="manifest"&gt;</code> in <code>&lt;head&gt;</code>.</li>
+        <li><strong>Apps → Storefront PWA</strong> in the Shopify admin. Set the
+          name and short name, upload a square logo of 512×512 or larger, save.</li>
+        <li>Open <code>https://&lt;your-store&gt;/apps/pwa/check</code>
+          <strong>on the storefront</strong>, not in the admin iframe — a service
+          worker's real scope and whether <code>beforeinstallprompt</code> fires
+          can only be observed from the origin in question.</li>
+      </ol>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · anywhere</span><button class="copy">Copy</button></div>
+<pre><code>curl -s  https://&lt;your-store&gt;/apps/pwa/health
+curl -s  https://&lt;your-store&gt;/apps/pwa/manifest.json | head -40
+curl -sI https://&lt;your-store&gt;/apps/pwa/icon-512.png</code></pre>
+      </div>
+
+      <div class="note info">
+        <span class="tag">Until a logo is uploaded</span>
+        <p>The app generates a placeholder icon from the store's initial, so the
+          store is installable from the moment the embed is on. A merchant who
+          configures nothing still gets a valid manifest.</p>
+      </div>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p>The admin renders inside the iframe rather than blank;
+          <code>/check</code> passes every row; the icon returns <code>200</code>
+          and <code>image/png</code>.</p>
+        <p>A 404 on the proxy paths while <code>/healthz</code> works means the
+          proxy URL lost its <code>/pwa/proxy</code> suffix — back to step 12.
+          Offline browsing failing is expected, not a deploy fault.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s13" data-step="s13"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="s14">
+      <div class="step-head">
+        <span class="step-n">14</span>
+        <div>
+          <h2>Install it, then set up backups</h2>
+          <p class="step-why">The code is in git. The data directory is the only
+            thing on that box you cannot recreate.</p>
+          <span class="where browser">Browser, then VPS</span>
+        </div>
+      </div>
+
+      <p>Install the store from the browser menu on desktop and Android, and via
+        <strong>Share → Add to Home Screen</strong> on iOS. Then, on the VPS:</p>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>tar czf /root/pwa-app-$(date +%F).tar.gz -C /var/lib/gaapps pwa-app</code></pre>
+      </div>
+
+      <p>Worth a nightly cron and an off-box copy. Hostinger's snapshot feature
+        covers the whole disk and is a reasonable second layer, but a snapshot
+        restore is an all-or-nothing rollback of the entire VPS — it is not a way
+        to recover one merchant's logo.</p>
+
+      <div class="check">
+        <span class="lab">Check</span>
+        <p>The tarball contains <code>shops/</code> and <code>assets/</code>.</p>
+      </div>
+
+      <label class="doneline"><input type="checkbox" id="done-s14" data-step="s14"> Mark step complete</label>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="redeploy">
+      <div class="step-head">
+        <span class="step-n">REF</span>
+        <div>
+          <h2>Redeploying after a code change</h2>
+          <p class="step-why">No build step, so this is the whole procedure.
+            Downtime is the restart, about a second.</p>
+        </div>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>cd /opt/gaapps/pwa-app
+sudo -u gaapps git pull
+sudo -u gaapps npm install     # or npm ci, once a lockfile is committed
+systemctl restart pwa-app
+
+curl -s localhost:3007/healthz
+journalctl -u pwa-app -n 30 --no-pager</code></pre>
+      </div>
+
+      <ul>
+        <li>After editing <code>/etc/gaapps/pwa-app.env</code>:
+          <code>systemctl restart</code>, not <code>reload</code> — systemd
+          re-reads <code>EnvironmentFile</code> only on a restart.</li>
+        <li>After changing the theme extension in <code>extensions/</code>:
+          <code>shopify app deploy</code> from your workstation. The server does
+          not serve that code; Shopify does.</li>
+        <li>After changing <code>shopify.app.toml</code>:
+          <code>shopify app config push</code>, then <code>git pull</code> on the
+          server so the checkout matches what Shopify has registered.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="step" id="trouble">
+      <div class="step-head">
+        <span class="step-n">REF</span>
+        <div>
+          <h2>Troubleshooting</h2>
+          <p class="step-why">Symptoms in the order you are likely to meet them,
+            with the cause that actually produces each one.</p>
+        </div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+          <tbody>
+            <tr><td>Blank panel in Shopify admin</td><td><code>SHOPIFY_API_KEY</code> unset, or an <code>X-Frame-Options</code> header at the nginx layer</td><td>Check <code>/healthz</code> shows <code>apiKey: true</code>; remove the header (step 11)</td></tr>
+            <tr><td>Admin loads, every save fails</td><td><code>SHOPIFY_API_SECRET</code> unset — session tokens cannot be verified</td><td>Set it, <code>systemctl restart pwa-app</code></td></tr>
+            <tr><td><code>/apps/pwa/*</code> 404s but <code>/healthz</code> works</td><td><code>[app_proxy] url</code> missing its <code>/pwa/proxy</code> suffix</td><td>Step 12</td></tr>
+            <tr><td>Nothing at all on the storefront</td><td>The theme app embed is not enabled</td><td>Theme editor → App embeds</td></tr>
+            <tr><td>Manifest loads, store still not installable</td><td><code>start_url</code> not same-origin, or a declared icon 404s</td><td>Run <code>/apps/pwa/check</code> — it names the failing check</td></tr>
+            <tr><td>Settings vanished after a deploy</td><td><code>DATA_DIR</code> pointed inside <code>/opt</code></td><td>Step 6, then restore from backup</td></tr>
+            <tr><td><code>EROFS</code> / <code>EACCES</code> in the journal</td><td>A write landing outside <code>ReadWritePaths</code></td><td>Confirm <code>DATA_DIR</code> and that the unit lists it</td></tr>
+            <tr><td>Logo upload fails with an HTML parse error</td><td>nginx <code>client_max_body_size</code> below the app's 8 MB cap</td><td>Keep it at <code>9m</code> (step 9)</td></tr>
+            <tr><td>Splash images time out on a cold store</td><td><code>sharp</code> rendering 2048×2732 exceeded the proxy timeout</td><td><code>proxy_read_timeout 60s</code>; on 1 GB plans confirm swap exists (step 4)</td></tr>
+            <tr><td><code>npm install</code> refuses outright</td><td>Node older than 20, and <code>.npmrc</code> sets <code>engine-strict=true</code></td><td>Install Node 22 (step 3)</td></tr>
+            <tr><td>certbot: "could not find a matching server block"</td><td>Dangling <code>sites-enabled</code> symlink, or DNS not yet resolving</td><td>Run the symlink check in step 9; <code>dig +short pwa.gaapps.cloud</code></td></tr>
+            <tr><td>PWA silently un-installs for every visitor</td><td><code>PWA_VERIFY_PROXY=true</code> and the signature is failing</td><td>Set it back to <code>false</code>, restart, recheck <code>/apps/pwa/health</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
+<pre><code>systemctl status pwa-app
+journalctl -u pwa-app -f
+journalctl -u pwa-app --since "10 min ago" --no-pager
+curl -s localhost:3007/healthz
+nginx -t &amp;&amp; systemctl reload nginx
+tail -f /var/log/nginx/pwa.gaapps.cloud.error.log</code></pre>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>Storefront PWA · port 3007 · Ubuntu 24.04</span>
+    <span>Fleet runbook: ../../DEPLOY.md · Source: apps/pwa-app/DEPLOY.md</span>
+  </footer>
+
+</div>
+
+<script>
+  // Copy buttons -------------------------------------------------------
+  document.querySelectorAll(".cmd").forEach(function (block) {
+    var btn = block.querySelector(".copy");
+    var code = block.querySelector("code");
+    if (!btn || !code) return;
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(code.innerText).then(function () {
+        var prev = btn.textContent;
+        btn.textContent = "Copied";
+        btn.classList.add("copied");
+        setTimeout(function () {
+          btn.textContent = prev;
+          btn.classList.remove("copied");
+        }, 1400);
+      });
+    });
+  });
+
+  // Dim full-line shell comments. Only lines whose first non-space char is
+  // "#" are touched, so a URL fragment or a `#` inside a string is never
+  // mangled.
+  document.querySelectorAll(".cmd pre code").forEach(function (code) {
+    var out = code.innerHTML.split("\n").map(function (line) {
+      return /^\s*#/.test(line) ? '<span class="c">' + line + "</span>" : line;
+    });
+    code.innerHTML = out.join("\n");
+  });
+
+  // Step completion, persisted per viewer ------------------------------
+  var KEY = "pwa-app-deploy-progress";
+  var boxes = Array.prototype.slice.call(document.querySelectorAll(".doneline input"));
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { saved = {}; }
+
+  function paint() {
+    var done = 0;
+    boxes.forEach(function (b) {
+      var link = document.querySelector('.index a[href="#' + b.dataset.step + '"]');
+      if (b.checked) { done++; if (link) link.classList.add("done"); }
+      else if (link) link.classList.remove("done");
+    });
+    document.getElementById("progress").textContent = done + " / " + boxes.length;
+  }
+
+  boxes.forEach(function (b) {
+    b.checked = !!saved[b.dataset.step];
+    b.addEventListener("change", function () {
+      saved[b.dataset.step] = b.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+      paint();
+    });
+  });
+  paint();
+
+  // Scrollspy ----------------------------------------------------------
+  var links = {};
+  document.querySelectorAll(".index a").forEach(function (a) {
+    links[a.getAttribute("href").slice(1)] = a;
+  });
+  var spy = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      Object.keys(links).forEach(function (k) { links[k].classList.remove("on"); });
+      var active = links[entry.target.id];
+      if (active) active.classList.add("on");
+    });
+  }, { rootMargin: "-10% 0px -75% 0px" });
+
+  document.querySelectorAll(".step").forEach(function (s) { spy.observe(s); });
+</script>

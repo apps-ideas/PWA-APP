@@ -11,6 +11,8 @@
  * and honours the admin's light and dark themes.
  */
 
+const { CATEGORIES: CATEGORY_CHOICES } = require('./validate.js');
+
 const ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
 function escapeHtml(value) {
@@ -66,6 +68,20 @@ const STYLES = `
   .preview img { width:72px; height:72px; border-radius:16px; border:1px solid var(--line);
     background:var(--field); object-fit:cover; }
   .shot { width:auto; max-width:180px; height:96px; border-radius:8px; }
+  /* The same icon under each platform's mask. A logo that survives a square
+     but loses its edges in a circle is the commonest icon mistake there is,
+     and it is invisible until you look at it cropped. */
+  .masks { display:flex; gap:20px; flex-wrap:wrap; margin-bottom:14px; }
+  .mask { text-align:center; width:84px; }
+  .mask img { width:72px; height:72px; border:1px solid var(--line); background:var(--field);
+    object-fit:cover; display:block; margin:0 auto; }
+  .mask .sq { border-radius:16px; }
+  .mask .squircle { border-radius:22%; }
+  .mask .circle { border-radius:50%; }
+  .mask span { display:block; margin-top:7px; font-size:12px; color:var(--muted); line-height:1.3; }
+  .cats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:2px 14px; }
+  .cats .check { margin-bottom:4px; }
+  .off { opacity:.5; }
   .shortcut { display:grid; grid-template-columns:1fr 1.4fr; gap:10px; margin-bottom:10px; }
   a { color:inherit; }
   code { background:rgba(128,128,128,.16); border-radius:4px; padding:1px 5px;
@@ -105,6 +121,40 @@ function colorField(id, label, sublabel) {
 
 function checkbox(id, label) {
   return '<div class="check"><input type="checkbox" id="' + id + '"><label for="' + id + '">' + label + '</label></div>';
+}
+
+/**
+ * The icon block: upload controls plus the same icon under each platform's mask.
+ *
+ * The previews are the real renders the server will serve, not the file the
+ * merchant picked, so the placeholder shows here too before anything is
+ * uploaded — and a logo that will lose its edges under Android's circular mask
+ * shows it here rather than on a customer's home screen.
+ */
+function iconSection() {
+  const masks = [
+    ['iconPreview', 'sq', 'Desktop &amp; iOS'],
+    ['iconMaskableSquirclePreview', 'squircle', 'Android squircle'],
+    ['iconMaskableCirclePreview', 'circle', 'Android circle'],
+  ];
+
+  return (
+    '<h2>App icon</h2>' +
+    '<p class="hint">One square PNG, at least 512&times;512. Every size the manifest needs is generated ' +
+    'from it, including the Android maskable pair. Until you upload one, a placeholder with your ' +
+    'initial is used so the store is still installable.</p>' +
+    '<div class="masks">' +
+    masks.map(([id, cls, label]) =>
+      '<div class="mask"><img id="' + id + '" class="' + cls + '" alt=""><span>' + label + '</span></div>'
+    ).join('') +
+    '</div>' +
+    '<div class="row">' +
+    '<input type="file" id="iconFile" accept="image/png,image/jpeg,image/webp" hidden>' +
+    '<button type="button" class="secondary" data-upload="icon">Choose image</button>' +
+    '<button type="button" class="secondary" data-remove="icon">Remove</button>' +
+    '<span class="muted" id="iconMeta"></span>' +
+    '</div>'
+  );
 }
 
 function assetBlock(kind, label, hint, previewClass) {
@@ -163,6 +213,16 @@ ${shop && apiKey ? '<script src="https://cdn.shopify.com/shopifycloud/app-bridge
   </section>
 
   <section>
+    <h2>Status</h2>
+    <p class="hint">Two switches control this app, and they do different jobs. The theme app embed
+      decides whether the tags are on the page at all — that is a theme change, made in the theme
+      editor. The switch below leaves the theme alone and makes the manifest non-installable, which
+      is the one to reach for if something looks wrong on a live store.</p>
+    ${checkbox('enabled', 'Storefront PWA is active — customers can install the store as an app')}
+    <p class="hint" id="enabledNote" style="margin:0"></p>
+  </section>
+
+  <section>
     <h2>App identity</h2>
     <p class="hint">What the installed app is called, and how it describes itself in install dialogs.</p>
     <div class="grid">
@@ -176,10 +236,21 @@ ${shop && apiKey ? '<script src="https://cdn.shopify.com/shopifycloud/app-bridge
       ${field('lang', 'Language', text('lang', 'en'), 'A BCP&nbsp;47 tag, e.g. <code>en</code>, <code>ur</code>, <code>ar-AE</code>.')}
       ${field('dir', 'Text direction', select('dir', [['auto', 'Automatic'], ['ltr', 'Left to right'], ['rtl', 'Right to left']]))}
     </div>
+    <div style="margin-top:18px">
+      <label>Categories</label>
+      <span class="sublabel" style="margin:0 0 10px">What kind of app this is. Up to five; anything
+        beyond that is dropped. Only some app catalogues read them, so this is low-stakes.</span>
+      <div class="cats">
+        ${CATEGORY_CHOICES.map((c) =>
+          '<div class="check"><input type="checkbox" id="cat-' + c + '" data-category="' + c + '">' +
+          '<label for="cat-' + c + '">' + c.charAt(0).toUpperCase() + c.slice(1) + '</label></div>'
+        ).join('')}
+      </div>
+    </div>
   </section>
 
   <section>
-    ${assetBlock('icon', 'App icon', 'One square PNG, at least 512&times;512. Every size the manifest needs is generated from it, including the Android maskable pair. Until you upload one, a placeholder with your initial is used so the store is still installable.', '')}
+    ${iconSection()}
   </section>
 
   <section>
@@ -282,6 +353,7 @@ function script() {
   'use strict';
 
   var FIELDS = [
+    ['enabled', 'enabled'],
     ['name', 'name'], ['shortName', 'shortName'], ['description', 'description'],
     ['lang', 'lang'], ['dir', 'dir'], ['startUrl', 'startUrl'], ['scope', 'scope'],
     ['display', 'display'], ['orientation', 'orientation'],
@@ -368,6 +440,52 @@ function script() {
     }
   }
 
+  function renderCategories() {
+    var chosen = state.categories || [];
+    var boxes = document.querySelectorAll('[data-category]');
+    for (var i = 0; i < boxes.length; i++) {
+      boxes[i].checked = chosen.indexOf(boxes[i].getAttribute('data-category')) !== -1;
+    }
+  }
+
+  function renderEnabled() {
+    var on = el('enabled').checked;
+    var note = el('enabledNote');
+    note.textContent = on
+      ? 'Active. Customers who have not installed yet will be offered the app.'
+      : 'Switched off. The manifest is still served, but it asks for a plain browser tab, so no ' +
+        'browser will offer to install the store. Existing installs keep working.';
+    // Dim everything downstream of the switch: nothing below has any effect
+    // while the app is off, and saying so visually beats a banner.
+    var sections = document.querySelectorAll('section');
+    for (var i = 2; i < sections.length; i++) sections[i].className = on ? '' : 'off';
+  }
+
+  /* The icon previews are the real renders, so the same image appears three
+   * times under the three masks a platform may apply to it. */
+  function renderIconPreviews() {
+    var pairs = [
+      ['iconPreview', previews.icon],
+      ['iconMaskableSquirclePreview', previews.iconMaskable],
+      ['iconMaskableCirclePreview', previews.iconMaskable]
+    ];
+    for (var i = 0; i < pairs.length; i++) {
+      var node = el(pairs[i][0]);
+      if (pairs[i][1]) {
+        node.src = pairs[i][1];
+        node.style.visibility = '';
+      } else {
+        node.removeAttribute('src');
+        node.style.visibility = 'hidden';
+      }
+    }
+
+    var asset = state.assets.icon;
+    el('iconMeta').textContent = asset.present
+      ? asset.width + ' x ' + asset.height + ' uploaded'
+      : 'No icon uploaded — showing the generated placeholder';
+  }
+
   function renderAsset(kind, emptyText) {
     var asset = state.assets[kind];
     var preview = el(kind + 'Preview');
@@ -388,7 +506,7 @@ function script() {
   }
 
   function renderAssets() {
-    renderAsset('icon', 'No icon yet — a placeholder with your initial is in use');
+    renderIconPreviews();
     renderAsset('screenshotWide', 'Not set');
     renderAsset('screenshotNarrow', 'Not set');
   }
@@ -413,6 +531,8 @@ function script() {
     });
 
     renderShortcuts();
+    renderCategories();
+    renderEnabled();
     renderAssets();
     el('save').disabled = false;
     status(state.updatedAt ? 'Last saved ' + new Date(state.updatedAt).toLocaleString() : 'Not saved yet');
@@ -428,6 +548,12 @@ function script() {
       else set(out, pair[0], node.value);
     });
 
+    out.categories = [];
+    var boxes = document.querySelectorAll('[data-category]');
+    for (var c = 0; c < boxes.length; c++) {
+      if (boxes[c].checked) out.categories.push(boxes[c].getAttribute('data-category'));
+    }
+
     out.shortcuts = [];
     for (var i = 0; i < 4; i++) {
       var name = document.querySelector('[data-sc-name="' + i + '"]').value.trim();
@@ -438,6 +564,8 @@ function script() {
   }
 
   /* ---------------------------------------------------------------- events */
+
+  el('enabled').addEventListener('change', renderEnabled);
 
   ['themeColor', 'backgroundColor'].forEach(function (id) {
     el(id + 'Picker').addEventListener('input', function (e) { el(id).value = e.target.value; });

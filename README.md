@@ -85,6 +85,7 @@ iOS launch images and storefront script are all served from there.
 
 ```
 shopify.app.toml                  app config + [app_proxy]
+test/smoke.js                     npm test — boots the server, exercises both surfaces
 extensions/storefront-pwa/        theme app embed — injects the manifest link
   blocks/pwa.liquid
 web/
@@ -153,6 +154,35 @@ working default.
 
 Until a logo is uploaded the app generates a placeholder icon from the store's
 initial, so the store is installable from the moment the embed is on.
+
+The admin has ten sections:
+
+| Section | What it sets |
+|---|---|
+| **Status** | Master switch. Off leaves the theme untouched and makes the manifest non-installable. |
+| **App identity** | Name, short name, description, language, text direction, categories. |
+| **App icon** | Upload, and the live render shown under all three platform masks. |
+| **Appearance** | Theme and background colours, display mode, orientation. |
+| **Launch behaviour** | Start URL, scope, and up to four shortcuts. |
+| **Install prompt** | Whether to show the card, its delay, position, wording and dismissal period. |
+| **iOS** | Launch screens, status bar style. |
+| **Screenshots** | A wide and a narrow image for the richer install dialogs. |
+| **Offline browsing** | The service worker toggle, and why it cannot work here. |
+
+Two of those are worth knowing about before you use them.
+
+**The icon previews are the real renders, not the file you picked.** The same
+icon is shown three times — square for desktop and iOS, squircle and circle for
+Android — because the commonest way a PWA icon goes wrong is a logo whose edges
+vanish under Android's circular mask, and that is invisible in a flat thumbnail.
+The placeholder is rendered here too, so the previews are never empty.
+
+**There are two off switches, and they do different jobs.** The theme app embed
+decides whether the tags are on the page at all; that is a theme change, made in
+the theme editor, and it needs the theme published. The Status switch leaves the
+theme alone and serves a manifest asking for a plain browser tab, which no
+browser offers to install — it is the one to reach for when something looks
+wrong on a live store. Existing installs keep working either way.
 
 ### 5. Verify on the storefront
 
@@ -223,6 +253,34 @@ chrome affordance from customers who already installed:
 | `sw.js` | `no-cache` | A long-cached service worker is a fix you cannot ship. |
 | icons, splash, screenshots | `max-age=31536000, immutable` | Content-addressed by `?v=<rev>`. The rev hashes the upload *and* the colours and initial that the maskable, splash and placeholder renders are drawn from, so changing any of them changes every URL. |
 | `/offline`, `/check`, `/health` | `no-store` | A CDN copy of "you are offline" served to an online visitor is memorable. |
+
+## Tests
+
+```bash
+npm test
+```
+
+Boots the real server on a scratch `DATA_DIR` and makes 83 assertions across
+both surfaces: manifest shape and the same-origin `start_url` rule, icon and
+splash rendering, the size allow-lists, session-token rejection (no token, wrong
+secret, expired, wrong `aud`), settings coercion, the master switch, icon upload
+limits, cache-busting on a colour change, and the uninstall webhook's HMAC and
+data deletion.
+
+Two of those are there because they caught real bugs during development, and
+both would have reached a storefront silently:
+
+- **The served `pwa.js` and `sw.js` are parsed, not just checked for the
+  placeholder.** The config token also appeared in each template's header
+  comment, and `String.replace` with a string pattern substitutes only the first
+  occurrence — so the config landed in the comment and the real assignment
+  stayed a bare identifier. The result was valid JavaScript that threw
+  `ReferenceError` on the first line of every storefront page. `loadTemplate` in
+  `web/server.js` now refuses to boot if the token is not unique.
+- **A colour change must move every icon URL.** Derived renders are served
+  `immutable` for a year but were keyed only on the uploaded file's hash, so
+  changing the background colour — which pads the maskable icons and paints the
+  splash screens — would have served stale renders forever.
 
 ## Data
 

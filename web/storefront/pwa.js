@@ -1,7 +1,7 @@
 /*
  * Storefront runtime. Served through the app proxy as /apps/pwa/pwa.js with the
- * shop's settings substituted for __PWA_CONFIG__, so it is one request and no
- * round trip before the install UI can decide anything.
+ * shop's settings substituted into the CFG assignment below, so it is one
+ * request and no round trip before the install UI can decide anything.
  *
  * Everything here runs on a live storefront on every page view. It is wrapped
  * in a single IIFE, touches no globals but its own, and treats every feature

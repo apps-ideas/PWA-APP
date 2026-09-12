@@ -42,8 +42,35 @@ app.disable('x-powered-by');
 /* ------------------------------------------------------------------ helpers */
 
 const STOREFRONT_DIR = path.join(__dirname, 'storefront');
-const SW_TEMPLATE = fs.readFileSync(path.join(STOREFRONT_DIR, 'sw.js'), 'utf8');
-const PWA_TEMPLATE = fs.readFileSync(path.join(STOREFRONT_DIR, 'pwa.js'), 'utf8');
+
+/**
+ * Load a storefront script template and prove its config placeholder is unique.
+ *
+ * This check earns its keep: `String.replace` with a string pattern substitutes
+ * only the FIRST occurrence, so a second mention of the token — in a header
+ * comment, say — silently swallows the config and leaves the real assignment as
+ * a bare identifier. The served file is then valid JavaScript that throws
+ * ReferenceError on the first line of every storefront page. Failing at boot is
+ * the only good time to find that out.
+ */
+function loadTemplate(file, token) {
+  const source = fs.readFileSync(path.join(STOREFRONT_DIR, file), 'utf8');
+  const occurrences = source.split(token).length - 1;
+  if (occurrences !== 1) {
+    throw new Error(
+      'web/storefront/' + file + ' must contain ' + token + ' exactly once, found ' + occurrences +
+      '. Mentioning the token in a comment breaks the substitution.'
+    );
+  }
+  return { source, token };
+}
+
+function render(template, config) {
+  return template.source.split(template.token).join(JSON.stringify(config));
+}
+
+const SW_TEMPLATE = loadTemplate('sw.js', '__SW_CONFIG__');
+const PWA_TEMPLATE = loadTemplate('pwa.js', '__PWA_CONFIG__');
 
 /**
  * Whether black or white text is legible on a given background.
@@ -141,6 +168,14 @@ proxy.get('/pwa.js', (req, res) => {
   const s = req.settings;
   const rev = images.renderRev(s);
 
+  // Switched off in the admin. The theme app embed still requests this file, so
+  // answer with something valid and inert rather than a 404 in every console.
+  if (!s.enabled) {
+    cacheFor(res, 60);
+    res.type('application/javascript; charset=utf-8');
+    return res.send('/* Storefront PWA is switched off in the app admin. */\n');
+  }
+
   const config = {
     version: APP_VERSION,
     dir: s.dir,
@@ -163,7 +198,7 @@ proxy.get('/pwa.js', (req, res) => {
   cacheFor(res, 600);
   res.type('application/javascript; charset=utf-8');
   res.set('X-Content-Type-Options', 'nosniff');
-  res.send(PWA_TEMPLATE.replace('__PWA_CONFIG__', JSON.stringify(config)));
+  res.send(render(PWA_TEMPLATE, config));
 });
 
 proxy.get('/sw.js', (req, res) => {
@@ -188,7 +223,7 @@ proxy.get('/sw.js', (req, res) => {
   res.set('Cache-Control', 'no-cache, must-revalidate');
   res.set('X-Content-Type-Options', 'nosniff');
   res.type('application/javascript; charset=utf-8');
-  res.send(SW_TEMPLATE.replace('__SW_CONFIG__', JSON.stringify(config)));
+  res.send(render(SW_TEMPLATE, config));
 });
 
 /** Icons. `?v=<rev>` makes every URL content-addressed, so a year is safe. */
@@ -273,6 +308,7 @@ proxy.get('/health', (req, res) => {
     ok: true,
     shop: req.shop,
     proxyBase: req.proxyBase,
+    enabled: s.enabled,
     configured: Boolean(s.updatedAt),
     iconUploaded: s.assets.icon.present,
     manifest: req.proxyBase + '/manifest.json',

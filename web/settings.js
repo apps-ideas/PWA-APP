@@ -64,6 +64,13 @@ function defaults(shop) {
     shop: shop || null,
     updatedAt: null,
 
+    // Master switch, separate from the theme app embed on purpose. The embed
+    // decides whether the tags are in the page at all, which is a theme change
+    // and needs the theme editor. This is the one a merchant can flip in two
+    // seconds when something looks wrong on a live store — it leaves the embed
+    // alone and makes the manifest non-installable instead.
+    enabled: true,
+
     // Manifest identity
     name: handle,
     shortName: handle.slice(0, 12),

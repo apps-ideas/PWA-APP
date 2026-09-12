@@ -1,6 +1,6 @@
 /*
- * Storefront service worker. Served through the app proxy as /apps/pwa/sw.js
- * with __SW_CONFIG__ substituted.
+ * Storefront service worker. Served through the app proxy as /apps/pwa/sw.js,
+ * with the shop's settings substituted into the CFG assignment below.
  *
  * READ THIS BEFORE DEBUGGING IT
  * ----------------------------------------------------------------------

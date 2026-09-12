@@ -77,10 +77,15 @@ function build(settings, proxyBase) {
     start_url: settings.startUrl,
     scope: settings.scope,
 
-    display: settings.display,
+    // Switched off in the admin, the manifest is still served, and still valid
+    // — it just asks for a plain browser tab, which no browser offers to
+    // install. Withdrawing the file instead would put a 404 on a <link> tag
+    // that the theme app embed still renders on every storefront page, and
+    // Chrome reports that as a broken site rather than an uninstallable one.
+    display: settings.enabled ? settings.display : 'browser',
     // Ordered fallbacks. A browser that does not know the primary value walks
     // this list rather than dropping straight to a plain browser tab.
-    display_override: [settings.display, 'minimal-ui', 'browser'],
+    display_override: settings.enabled ? [settings.display, 'minimal-ui', 'browser'] : ['browser'],
     orientation: settings.orientation,
 
     theme_color: settings.themeColor,

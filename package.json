@@ -8,7 +8,8 @@
     "dev": "shopify app dev",
     "deploy": "shopify app deploy",
     "backend": "node web/server.js",
-    "start": "node web/server.js"
+    "start": "node web/server.js",
+    "test": "node test/smoke.js"
   },
   "engines": {
     "node": ">=20"
