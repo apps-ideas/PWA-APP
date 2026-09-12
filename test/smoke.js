@@ -81,9 +81,11 @@ async function run() {
   ok('manifest is 200', res.status === 200, 'got ' + res.status);
   ok('manifest content type', (res.headers.get('content-type') || '').includes('application/manifest+json'),
     res.headers.get('content-type'));
-  ok('manifest start_url is root-relative', manifest.start_url === '/?source=pwa', manifest.start_url);
-  ok('manifest scope is /', manifest.scope === '/', manifest.scope);
-  ok('manifest id is pinned to scope', manifest.id === '/', manifest.id);
+  ok('manifest launches at the shell, inside the worker scope',
+    manifest.start_url === '/apps/pwa/', manifest.start_url);
+  ok('manifest scope is still the whole storefront', manifest.scope === '/', manifest.scope);
+  ok('manifest id is pinned to scope, so the move does not orphan installs',
+    manifest.id === '/', manifest.id);
   ok('manifest display is standalone', manifest.display === 'standalone');
   ok('manifest has 192 and 512 icons',
     manifest.icons.some((i) => i.sizes === '192x192') && manifest.icons.some((i) => i.sizes === '512x512'));
@@ -92,6 +94,56 @@ async function run() {
     manifest.icons.every((i) => i.src.startsWith('/apps/pwa/')), manifest.icons[0].src);
   ok('manifest is cached briefly', (res.headers.get('cache-control') || '').includes('max-age=300'),
     res.headers.get('cache-control'));
+
+  console.log('\n== launch shell ==');
+
+  res = await fetch(proxyUrl('/'));
+  const shell = await res.text();
+  ok('the proxy root serves the shell', res.status === 200, 'got ' + res.status);
+  ok('the shell is html',
+    (res.headers.get('content-type') || '').includes('text/html'), res.headers.get('content-type'));
+  ok('the shell forwards to the merchant store URL, not to itself',
+    shell.includes('"/?source=pwa"') && !shell.includes('location.replace("/apps/pwa/")'));
+  ok('the shell replaces rather than pushes history', shell.includes('location.replace'));
+  ok('the shell has an offline state to fall back on', shell.includes('You are offline'));
+  ok('the shell is kept out of search results', shell.includes('name="robots" content="noindex"'));
+
+  res = await fetch(proxyUrl('/sw.js'));
+  const swSource = await res.text();
+  const swCfg = JSON.parse(swSource.match(/var CFG = (\{.*?\});/)[1]);
+  ok('the worker is told where its shell is', swCfg.shellUrl === '/apps/pwa/', swCfg.shellUrl);
+  ok('the shell is precached, so a cold offline launch has something to show',
+    swCfg.precache.includes('/apps/pwa/'), JSON.stringify(swCfg.precache));
+  ok('the offline page is precached too',
+    swCfg.precache.includes('/apps/pwa/offline'), JSON.stringify(swCfg.precache));
+  ok('the worker exempts its own pages from the blanket /apps/ exclusion',
+    swSource.includes('var OURS = [CFG.shellUrl, CFG.offlineUrl]'));
+  ok('but still refuses to cache the cart and checkout',
+    swSource.includes('/^\\/cart/') && swSource.includes('/^\\/checkout/'));
+  ok('the header is still sent, for the day Shopify stops stripping it',
+    res.headers.get('service-worker-allowed') === '/', res.headers.get('service-worker-allowed'));
+
+  console.log('\n== turning the worker off falls back to the store ==');
+
+  res = await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serviceWorker: { enabled: false, offlinePage: true, cacheVersion: 1 } }),
+  });
+  ok('the worker can be switched off', res.status === 200, 'got ' + res.status);
+
+  res = await fetch(proxyUrl('/manifest.json'));
+  const plain = await res.json();
+  ok('with no worker the app launches straight at the store',
+    plain.start_url === '/?source=pwa', plain.start_url);
+  ok('and its identity is unchanged either way', plain.id === '/', plain.id);
+
+  res = await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serviceWorker: { enabled: true, offlinePage: true, cacheVersion: 1 } }),
+  });
+  ok('and back on again', res.status === 200, 'got ' + res.status);
 
   // A manifest fetched without a shop is the "hit the backend directly" case.
   res = await fetch(BASE + '/pwa/proxy/manifest.json');

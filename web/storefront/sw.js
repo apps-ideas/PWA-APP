@@ -12,11 +12,16 @@
  * apps/izooto-push). So this worker's scope stays /apps/pwa/, it never sees a
  * storefront navigation, and nothing below runs for a real page view.
  *
- * It ships anyway because it is the half of the work that cannot be done later:
- * the day Shopify forwards the header, or the store moves behind a reverse
- * proxy that can serve /sw.js from the root, offline support is a settings
- * toggle rather than a project. /apps/pwa/check reports which case a given
- * storefront is actually in.
+ * What it does control is its own directory, and that is no longer nothing:
+ * the app's manifest launches at the shell under this same path, so a cold
+ * launch with no connection is served from cache rather than failing. The
+ * catalogue is still beyond reach and always will be through this route.
+ *
+ * The rest ships anyway because it is the half of the work that cannot be done
+ * later: the day Shopify forwards the header, or the store moves behind a
+ * reverse proxy that can serve /sw.js from the root, full offline support is a
+ * settings toggle rather than a project. /apps/pwa/check reports which case a
+ * given storefront is actually in.
  *
  * The caching rules below are written for that day, and are deliberately timid.
  * Serving a stale cart, a stale price or a stale checkout step is far worse
@@ -36,6 +41,14 @@ var NETWORK_TIMEOUT_MS = 4000;
  * A cached response on any of these paths is a support ticket at best and a
  * wrong order at worst.
  */
+/*
+ * Our own pages under the proxy, which the blanket /apps/ exclusion below would
+ * otherwise throw out along with the API endpoints. Exact matches only: /check
+ * and /health must keep going to the network every time, and a prefix test
+ * would quietly swallow them.
+ */
+var OURS = [CFG.shellUrl, CFG.offlineUrl].filter(Boolean);
+
 var NEVER_CACHE = [
   /^\/checkout/,
   /^\/checkouts\//,
@@ -57,6 +70,9 @@ var NEVER_CACHE = [
 ];
 
 function isExcluded(url) {
+  for (var o = 0; o < OURS.length; o++) {
+    if (url.pathname === OURS[o]) return false;
+  }
   for (var i = 0; i < NEVER_CACHE.length; i++) {
     if (NEVER_CACHE[i].test(url.pathname)) return true;
   }

@@ -118,8 +118,12 @@ function defaults(shop) {
       dismissDays: 14,
     },
 
-    // Dormant by default — see "Service worker" in the README for why.
-    serviceWorker: { enabled: false, offlinePage: true, cacheVersion: 1 },
+    // On by default. It was dormant while its only possible scope was a
+    // directory nothing ever visited; now the app launches inside that
+    // directory, so the worker earns its keep by making a cold offline launch
+    // land on the shell instead of a browser error. It still cannot touch the
+    // catalogue — see "Service worker" in the README.
+    serviceWorker: { enabled: true, offlinePage: true, cacheVersion: 1 },
   };
 }
 

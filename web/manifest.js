@@ -51,6 +51,21 @@ function screenshots(settings, proxyBase) {
   return out;
 }
 
+/**
+ * Where the installed app opens.
+ *
+ * With the worker running, that is the launch shell at the proxy root, because
+ * the worker's scope is the proxy directory and nothing outside it can be
+ * served from cache on a cold offline launch. The shell forwards to the
+ * merchant's own startUrl before paint, so this is invisible online.
+ *
+ * With the worker off there is nothing to stay inside, and the extra hop would
+ * only cost a redirect, so the store URL is used directly.
+ */
+function startUrlFor(settings, proxyBase) {
+  return settings.serviceWorker.enabled ? proxyBase + '/' : settings.startUrl;
+}
+
 function build(settings, proxyBase) {
   const rev = renderRev(settings);
 
@@ -74,7 +89,11 @@ function build(settings, proxyBase) {
     lang: settings.lang,
     dir: settings.dir,
 
-    start_url: settings.startUrl,
+    start_url: startUrlFor(settings, proxyBase),
+    // Deliberately still the whole storefront, not the proxy directory: scope
+    // is what stays inside the installed window, and a customer who taps
+    // through to a product should not be thrown into a browser tab. It is also
+    // this app's manifest `id`, so narrowing it would orphan every install.
     scope: settings.scope,
 
     // Switched off in the admin, the manifest is still served, and still valid
@@ -149,4 +168,4 @@ function iosSplashLinks(settings, proxyBase) {
   return links;
 }
 
-module.exports = { build, iosSplashLinks };
+module.exports = { build, iosSplashLinks, startUrlFor };

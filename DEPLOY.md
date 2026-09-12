@@ -356,8 +356,10 @@ curl -sI https://<your-store>/apps/pwa/icon-512.png
 every row; the icon returns `200` and `image/png`. A 404 here while
 `/healthz` works means the proxy URL lost its `/pwa/proxy` suffix.
 
-Offline browsing failing is expected, not a deploy fault — Shopify strips
-`Service-Worker-Allowed`. Installing is unaffected. → [detail](#step-9--verify)
+Offline *browsing* failing is expected, not a deploy fault — Shopify strips
+`Service-Worker-Allowed`, so the worker only ever controls `/apps/pwa/`.
+Launching offline should still work: the app opens the shell at that path from
+cache. Installing is unaffected either way. → [detail](#step-9--verify)
 
 ### 14 · Install it, then set up backups
 

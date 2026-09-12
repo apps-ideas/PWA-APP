@@ -203,11 +203,18 @@ proxy.get('/pwa.js', (req, res) => {
 
 proxy.get('/sw.js', (req, res) => {
   const s = req.settings;
+  // The shell is precached unconditionally: it is the app's launch URL, and a
+  // launch URL that is not in the cache is the one page whose absence is
+  // guaranteed to be noticed.
+  const precache = [req.proxyBase + '/'];
+  if (s.serviceWorker.offlinePage) precache.push(req.proxyBase + '/offline');
+
   const config = {
     cachePrefix: 'shopify-pwa',
     version: s.serviceWorker.cacheVersion,
     offlineUrl: req.proxyBase + '/offline',
-    precache: s.serviceWorker.offlinePage ? [req.proxyBase + '/offline'] : [],
+    shellUrl: req.proxyBase + '/',
+    precache,
   };
 
   // Service-Worker-Allowed asks the browser to let a worker served from
@@ -278,6 +285,23 @@ proxy.get(/^\/screenshot-(wide|narrow)\.png$/, (req, res, next) => {
   }, (err) => {
     if (err) next(err);
   });
+});
+
+/**
+ * The launch shell. This is what the installed app opens, and the only page in
+ * the whole product the service worker is permitted to control — see
+ * pages.shell and manifest.startUrlFor for why the app launches here rather
+ * than straight at the storefront.
+ */
+proxy.get('/', (req, res) => {
+  // Short, but not zero: the shell is the app's front door, so a stale copy for
+  // a few minutes is fine while a redeploy still reaches people the same day.
+  cacheFor(res, 300, false);
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.type('text/html; charset=utf-8').send(pages.shell(req.settings, req.settings.startUrl, {
+    enabled: req.settings.serviceWorker.enabled,
+    url: req.proxyBase + '/sw.js',
+  }));
 });
 
 proxy.get('/offline', (req, res) => {

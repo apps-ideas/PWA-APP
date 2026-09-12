@@ -54,10 +54,25 @@ There is no way around it from inside an app:
 - Shopify does not let anyone put a file at the domain root.
 - No Liquid template can be served with a JavaScript content type.
 
-So the worker ships, registered but scope-limited, and `sw.js` says so at the
-top. Turning it on costs nothing and proves the current state; the storefront
-check reports which case a given store is in. If Shopify ever forwards the
-header, offline browsing becomes a checkbox rather than a project.
+So the worker is scope-limited to `/apps/pwa/`, and always will be through this
+route. What changed is what lives at that path: the app's manifest now launches
+at a **shell** served from the proxy root, inside the one directory the worker
+is allowed to control.
+
+- Online the shell is invisible. It registers the worker, then replaces itself
+  with the merchant's own start URL, so the customer lands on the storefront
+  exactly as before.
+- Offline it is the difference between the app opening and the app failing. A
+  cold launch with no connection is served from cache and shows a branded
+  "you are offline" screen that reloads itself the moment a connection returns,
+  instead of the browser's error page.
+
+**The catalogue is still out of reach** — `/products/…`, `/collections/…` and
+the cart are outside the worker's scope and no setting changes that. Offline
+covers the launch, not browsing. The storefront check reports which case a given
+store is in. If Shopify ever forwards the header, full offline browsing becomes
+a checkbox rather than a project, and `manifest.startUrlFor` is the one function
+that has to change.
 
 **None of this affects installing.** Chrome dropped the service worker
 requirement for installing from the browser menu in Chrome 108 (Android) and 112
