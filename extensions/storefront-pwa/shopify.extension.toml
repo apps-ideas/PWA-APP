@@ -1,4 +1,5 @@
 name = "Storefront PWA"
 type = "theme"
+uid = "e2829c33-b55f-cfcb-26ec-c0c327674295cd91f140"
 
 # `uid` is assigned by the CLI on first `shopify app deploy` — do not hand-write it.
