@@ -175,7 +175,7 @@
   };
 
   function instructionsFor(p) {
-    return [];
+    return INSTRUCTIONS[p] || [];
   }
 
   /* Firefox on the desktop has no install support at all, and neither does an
@@ -294,7 +294,7 @@
     var anchor = pos === 'bottom-bar'
       ? 'left: 0; right: 0; bottom: 0; border-radius: 0;'
       : (pos === 'bottom-left' ? 'left: 16px; bottom: 16px;' : 'right: 16px; bottom: 16px;');
-    var width = pos === 'bottom-bar' ? 'width: auto;' : 'width: min(360px, calc(100vw - 32px));';
+    var width = pos === 'bottom-bar' ? 'width: auto;' : 'width: min(320px, calc(100vw - 24px));';
 
     return [
       // `all: initial` resets display to inline. Restated here so the host is a
@@ -304,34 +304,68 @@
       '  position: fixed; z-index: 2147483000;', anchor, width,
       // Right padding reserves the close button's corner so a long title cannot
       // run underneath it.
-      '  box-sizing: border-box; padding: 16px 36px 16px 18px;',
+      '  box-sizing: border-box; padding: 12px 32px 12px 14px;',
       '  margin-bottom: env(safe-area-inset-bottom, 0px);',
       '  background: ' + CFG.backgroundColor + '; color: ' + CFG.textColor + ';',
       '  border: 1px solid rgba(128,128,128,0.28); border-radius: 14px;',
       '  box-shadow: 0 10px 34px rgba(0,0,0,0.18);',
       '  font: 400 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
-      '  display: flex; gap: 14px; align-items: flex-start;',
+      '  display: flex; gap: 11px; align-items: flex-start;',
       '  animation: pwa-in 220ms ease-out;',
       '}',
-      '@media (prefers-reduced-motion: reduce) { .card { animation: none; } }',
+      '@media (prefers-reduced-motion: reduce) {',
+      '  .card { animation: none; }',
+      '  .more > summary::after { transition: none; }',
+      '}',
       '@keyframes pwa-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }',
-      '.icon { width: 44px; height: 44px; border-radius: 10px; flex: 0 0 auto; object-fit: cover; }',
+      '.icon { width: 34px; height: 34px; border-radius: 8px; flex: 0 0 auto; object-fit: cover; }',
       '.body { flex: 1 1 auto; min-width: 0; }',
-      '.title { font-weight: 600; font-size: 15px; margin: 0 0 3px; }',
-      '.text { margin: 0 0 12px; opacity: 0.82; }',
-      '.actions { display: flex; gap: 8px; flex-wrap: wrap; }',
+      '.title { font-weight: 600; font-size: 14px; margin: 0 0 2px; }',
+      // Clamped rather than left to wrap: the body copy is merchant-editable up
+      // to 200 characters, which is four lines of a 320px card. Two lines is
+      // enough to read the offer; the rest is not worth the height.
+      '.text {',
+      '  margin: 0 0 9px; font-size: 13px; opacity: 0.82;',
+      '  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;',
+      '  overflow: hidden;',
+      '}',
+      '.actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }',
       '.btn {',
-      '  font: inherit; font-weight: 600; cursor: pointer;',
-      '  padding: 9px 16px; border-radius: 9px; border: 0;',
+      '  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;',
+      '  padding: 7px 14px; border-radius: 8px; border: 0;',
       '  background: ' + CFG.themeColor + '; color: ' + CFG.onThemeColor + ';',
       '}',
-      '.btn.secondary { background: transparent; color: inherit; opacity: 0.7; padding: 9px 8px; }',
+      '.btn.secondary { background: transparent; color: inherit; opacity: 0.7; padding: 7px 6px; }',
       '.btn:focus-visible { outline: 2px solid ' + CFG.themeColor + '; outline-offset: 2px; }',
-      '.steps { margin: 6px 0 12px; padding-left: 20px; }',
-      '.steps li { margin-bottom: 6px; }',
+
+      /*
+       * Steps live behind a disclosure, closed on load. A <details> rather than
+       * a button plus aria-expanded: the semantics, the keyboard behaviour and
+       * the toggling are the element's job, and it still works if this script's
+       * listeners never run.
+       */
+      '.more { margin: 0 0 9px; }',
+      '.more > summary {',
+      '  list-style: none; cursor: pointer;',
+      '  display: inline-flex; align-items: center; gap: 5px;',
+      '  font-size: 13px; font-weight: 600; opacity: 0.78; padding: 1px 0;',
+      '}',
+      '.more > summary::-webkit-details-marker { display: none; }',
+      '.more > summary::after {',
+      '  content: "\\25BE"; font-size: 9px; opacity: 0.8;',
+      '  transition: transform 150ms ease;',
+      '}',
+      '.more[open] > summary::after { transform: rotate(180deg); }',
+      '.more > summary:hover { opacity: 1; }',
+      '.more > summary:focus-visible {',
+      '  outline: 2px solid ' + CFG.themeColor + '; outline-offset: 2px; border-radius: 4px; opacity: 1;',
+      '}',
+      '.steps { margin: 8px 0 0; padding-left: 17px; font-size: 13px; }',
+      '.steps li { margin-bottom: 5px; }',
+      '.steps li:last-child { margin-bottom: 0; }',
       '.close {',
-      '  position: absolute; top: 6px; right: 6px;',
-      '  width: 30px; height: 30px; padding: 0;',
+      '  position: absolute; top: 4px; right: 4px;',
+      '  width: 26px; height: 26px; padding: 0;',
       '  border: 0; border-radius: 8px; background: none; color: inherit;',
       '  font: inherit; font-size: 20px; line-height: 1;',
       '  cursor: pointer; opacity: 0.55;',
@@ -464,7 +498,9 @@
    * on a browser that cannot install; a click gets an answer either way. */
   function showInstructions(forced) {
     var steps = instructionsFor(platform());
-    if (!steps.length) {
+    var supported = steps.length > 0;
+
+    if (!supported) {
       if (!forced) return false;
       steps = NO_SUPPORT;
     }
@@ -487,6 +523,30 @@
         list.appendChild(li);
       }
 
+      /*
+       * Closed on load, always. The card's job at rest is to be small enough to
+       * ignore; someone who wants the steps opens them.
+       *
+       * "Cannot install" is the exception — it is one sentence, and hiding it
+       * behind a toggle labelled "How to install" would promise a route that
+       * does not exist on this browser.
+       */
+      var stepsBlock;
+      if (supported) {
+        stepsBlock = document.createElement('details');
+        stepsBlock.className = 'more';
+
+        var summary = document.createElement('summary');
+        summary.textContent = 'How to install';
+
+        stepsBlock.appendChild(summary);
+        stepsBlock.appendChild(list);
+      } else {
+        stepsBlock = document.createElement('p');
+        stepsBlock.className = 'text';
+        stepsBlock.textContent = steps[0];
+      }
+
       var done = document.createElement('button');
       done.className = 'btn';
       done.type = 'button';
@@ -498,7 +558,7 @@
       actions.appendChild(done);
 
       body.appendChild(title);
-      body.appendChild(list);
+      body.appendChild(stepsBlock);
       body.appendChild(actions);
       card.appendChild(body);
     });
