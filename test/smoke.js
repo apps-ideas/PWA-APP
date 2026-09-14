@@ -377,6 +377,71 @@ async function run() {
   res = await fetch(proxyUrl('/icon-192-maskable.png'));
   ok('the recoloured maskable icon renders', res.status === 200 && isPng(Buffer.from(await res.arrayBuffer())));
 
+  console.log('\n== install counters ==');
+
+  // The storefront sends these as a bare beacon: POST, no body, event name in
+  // the query string, shop supplied by the proxy.
+  function event(type) {
+    return fetch(proxyUrl('/event?type=' + type), { method: 'POST' });
+  }
+
+  res = await event('shown');
+  ok('an event beacon is 204', res.status === 204, 'got ' + res.status);
+  ok('the beacon is never cached', (res.headers.get('cache-control') || '').includes('no-store'));
+
+  await event('shown');
+  await event('clicked');
+  await event('installed');
+  await event('installed');
+  await event('launch');
+
+  res = await event('not-an-event');
+  ok('an unknown event name is still 204', res.status === 204, 'got ' + res.status);
+
+  res = await fetch(BASE + '/pwa/proxy/event?type=installed', { method: 'POST' });
+  ok('an event without ?shop is 400', res.status === 400, 'got ' + res.status);
+
+  res = await admin('/api/stats');
+  const counts = await res.json();
+  ok('stats need a session token', (await fetch(BASE + '/api/stats')).status === 401);
+  ok('stats are 200 for a valid token', res.status === 200, 'got ' + res.status);
+  ok('installs are counted', counts.totals.installed === 2, JSON.stringify(counts.totals));
+  ok('card impressions are counted', counts.totals.shown === 2, JSON.stringify(counts.totals));
+  ok('taps are counted', counts.totals.clicked === 1);
+  ok('app opens are counted', counts.totals.launch === 1);
+  ok('an unknown event name is not stored',
+    Object.keys(counts.totals).length === 4, JSON.stringify(counts.totals));
+  ok('the window defaults to 30 days', counts.windowDays === 30, String(counts.windowDays));
+  ok('the series has a row per day, including the empty ones', counts.series.length === 30,
+    String(counts.series.length));
+  ok('today is the last row of the series',
+    counts.series[29].date === new Date().toISOString().slice(0, 10), counts.series[29].date);
+  ok('today carries the installs just recorded', counts.series[29].installed === 2);
+  ok('the window is clamped to the retention period',
+    (await (await admin('/api/stats?days=9999')).json()).windowDays === 180);
+
+  // The ceiling is per shop, not per address: behind nginx every request comes
+  // from 127.0.0.1, and behind Shopify's app proxy every legitimate storefront
+  // event in the fleet shares a handful of edge addresses.
+  const flood = [];
+  for (let i = 0; i < 1400; i++) flood.push(event('shown'));
+  await Promise.all(flood);
+
+  const capped = await (await admin('/api/stats')).json();
+  ok('a flood is capped rather than counted',
+    capped.totals.shown > 1000 && capped.totals.shown <= 1202, String(capped.totals.shown));
+  ok('the cap does not disturb the other counters',
+    capped.totals.installed === 2 && capped.totals.launch === 1, JSON.stringify(capped.totals));
+
+  // The storefront script has to be told where to send them, or nothing above
+  // ever happens on a real store.
+  res = await fetch(proxyUrl('/pwa.js'));
+  const counting = await res.text();
+  ok('pwa.js carries the event endpoint', counting.includes('"eventUrl":"/apps/pwa/event"'));
+  ok('pwa.js counts installs off appinstalled', counting.includes("addEventListener('appinstalled'"));
+  ok('pwa.js sends by beacon so an unloading page still counts',
+    counting.includes('navigator.sendBeacon'));
+
   console.log('\n== uninstall webhook ==');
 
   const payload = Buffer.from(JSON.stringify({ shop_domain: SHOP }));
@@ -397,6 +462,16 @@ async function run() {
   ok('a valid uninstall webhook is 200', res.status === 200, 'got ' + res.status);
   ok('settings are deleted on uninstall', !fs.existsSync(path.join(DATA_DIR, 'shops', SHOP + '.json')));
   ok('uploaded assets are deleted on uninstall', !fs.existsSync(path.join(DATA_DIR, 'assets', SHOP)));
+
+  // Asserted through the API rather than off the disk: the counts are held in
+  // memory between flushes, so a file that is absent proves nothing. What has
+  // to be true is that the in-memory copy went with the file — otherwise the
+  // next flush would write the departed merchant's counts straight back.
+  const afterUninstall = await (await admin('/api/stats')).json();
+  ok('install counts are deleted on uninstall',
+    afterUninstall.totals.installed === 0 && afterUninstall.lastEventAt === null,
+    JSON.stringify(afterUninstall.totals));
+  ok('the stats file is gone too', !fs.existsSync(path.join(DATA_DIR, 'stats', SHOP + '.json')));
 }
 
 const server = spawn(process.execPath, ['web/server.js'], {

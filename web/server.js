@@ -24,6 +24,7 @@ const path = require('path');
 const express = require('express');
 
 const settingsStore = require('./settings.js');
+const stats = require('./stats.js');
 const images = require('./images.js');
 const manifestBuilder = require('./manifest.js');
 const validate = require('./validate.js');
@@ -117,6 +118,63 @@ function cacheFor(res, seconds, immutable) {
   res.set('Cache-Control', 'public, max-age=' + seconds + (immutable ? ', immutable' : ''));
 }
 
+/**
+ * A ceiling on how fast one shop's install counters can move.
+ *
+ * The counter endpoint is public and unauthenticated — it has to be, it is
+ * called from a storefront page with no session — so without a cap the numbers
+ * are whatever anyone with the URL cares to type. This bounds the damage: an
+ * abused counter flattens out at the ceiling for that minute instead of running
+ * away, which a merchant can at least recognise as wrong.
+ *
+ * Keyed on the shop, not the caller, because there is no usable caller here.
+ * The app sits behind nginx, so the socket address is 127.0.0.1 for every
+ * request; and even reading X-Forwarded-For would only reveal Shopify's app
+ * proxy, which is the origin of every legitimate storefront event from every
+ * store. A per-address limit would therefore either throttle one shared bucket
+ * for the whole fleet or do nothing at all.
+ *
+ * The ceiling is set far above real traffic. The storefront script sends at
+ * most a handful of events per visit — `installed` once per browser ever — so a
+ * store would need roughly twenty install-card impressions a second to reach
+ * it.
+ */
+const RATE_WINDOW_MS = 60000;
+const RATE_MAX_PER_SHOP = 1200;
+const rateWindow = new Map();
+
+function withinRate(shop) {
+  const now = Date.now();
+
+  // The key space is "anything shaped like a myshopify domain", which is not a
+  // bounded set — someone enumerating names would otherwise grow this map for
+  // as long as they cared to. Cleared wholesale rather than swept: the entries
+  // are counters with no value past the current minute, so a full clear costs
+  // one allocation instead of a walk, and the worst it does is give every shop
+  // a fresh window. stats.js applies its own, stricter bound before any of
+  // those names reaches the disk.
+  if (rateWindow.size > 5000) rateWindow.clear();
+
+  const entry = rateWindow.get(shop);
+
+  if (!entry || now > entry.resetAt) {
+    rateWindow.set(shop, { count: 1, resetAt: now + RATE_WINDOW_MS, warned: false });
+    return true;
+  }
+
+  entry.count += 1;
+  if (entry.count <= RATE_MAX_PER_SHOP) return true;
+
+  // Once per window, not per request: a rejected flood must not turn into a
+  // flood of log lines, but a merchant asking why their chart has a flat top
+  // deserves something in the log to find.
+  if (!entry.warned) {
+    entry.warned = true;
+    console.warn('install events for ' + shop + ' hit the ' + RATE_MAX_PER_SHOP + '/min ceiling; dropping the rest of this minute');
+  }
+  return false;
+}
+
 /* ----------------------------------------------------------- proxy surface */
 
 const proxy = express.Router();
@@ -192,6 +250,7 @@ proxy.get('/pwa.js', (req, res) => {
     },
     install: s.install,
     sw: { enabled: s.serviceWorker.enabled, url: req.proxyBase + '/sw.js' },
+    eventUrl: req.proxyBase + '/event',
     origin: '',
   };
 
@@ -325,6 +384,25 @@ proxy.get('/check', (req, res) => {
   res.type('text/html; charset=utf-8').send(pages.check(req.settings, req.proxyBase));
 });
 
+/**
+ * The install counter. Called from the storefront by navigator.sendBeacon.
+ *
+ * POST only, and everything it needs is in the query string: a beacon has no
+ * body worth parsing, and a GET would be cached by Shopify's CDN — the second
+ * install of the day would be served a 204 from the edge and never reach here.
+ *
+ * Answers 204 whatever happens, including for an unknown event name or a
+ * client over its rate limit. A beacon is fired from a page that is often
+ * already unloading; there is nobody left to read an error, and a 4xx would
+ * only put a red line in a merchant's console for a counter that does not
+ * matter that much.
+ */
+proxy.post('/event', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (withinRate(req.shop)) stats.record(req.shop, String(req.query.type || ''));
+  res.status(204).end();
+});
+
 proxy.get('/health', (req, res) => {
   const s = req.settings;
   res.set('Cache-Control', 'no-store');
@@ -357,7 +435,8 @@ app.post('/webhooks/app/uninstalled', express.raw({ type: 'application/json', li
   const shop = String(req.get('x-shopify-shop-domain') || '').toLowerCase();
   if (settingsStore.isValidShop(shop)) {
     settingsStore.remove(shop);
-    console.log('uninstalled: removed settings and assets for ' + shop);
+    stats.remove(shop);
+    console.log('uninstalled: removed settings, assets and install counts for ' + shop);
   }
 
   // Always 200 once the HMAC is good. A non-2xx makes Shopify retry, and a
@@ -377,6 +456,13 @@ app.get('/api/settings', auth.requireSession, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/** Install counts for the shop in the session token. Read-only — the counters
+ *  are only ever written from the storefront. */
+app.get('/api/stats', auth.requireSession, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(stats.summary(req.shop, req.query.days));
 });
 
 app.post('/api/settings', auth.requireSession, (req, res) => {
@@ -512,6 +598,8 @@ app.use((err, req, res, _next) => {
   if (status >= 500) console.error(req.method + ' ' + req.originalUrl + ' failed:', err);
   res.status(status).type('text/plain').send(status === 404 ? 'not found' : 'server error');
 });
+
+stats.start();
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log('storefront-pwa listening on 127.0.0.1:' + PORT);

@@ -79,6 +79,25 @@ const STYLES = `
   .mask .squircle { border-radius:22%; }
   .mask .circle { border-radius:50%; }
   .mask span { display:block; margin-top:7px; font-size:12px; color:var(--muted); line-height:1.3; }
+  /* Install figures. The tiles are a plain auto-fit grid so four of them sit
+     in a row on a desktop admin and stack in pairs on a phone, with no
+     breakpoint to keep in step with the section width. */
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(124px,1fr)); gap:10px;
+    margin-bottom:16px; }
+  .tile { border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:var(--field); }
+  .tile .n { font-size:23px; font-weight:600; line-height:1.2; font-variant-numeric:tabular-nums; }
+  .tile .k { color:var(--muted); font-size:12.5px; margin-top:3px; }
+  /* Bars are drawn with divs rather than an SVG or a chart library: thirty
+     rectangles is the whole requirement, and this way the chart inherits the
+     admin's dark mode for free. */
+  .chart { display:flex; align-items:flex-end; gap:2px; height:74px; padding:0 1px;
+    border-bottom:1px solid var(--line); }
+  .chart .bar { flex:1 1 0; min-width:0; height:100%; display:flex; align-items:flex-end; }
+  .chart .bar i { display:block; width:100%; background:var(--accent); border-radius:2px 2px 0 0;
+    min-height:1px; opacity:.85; }
+  .chart .bar.zero i { background:var(--line); opacity:1; }
+  .axis { display:flex; justify-content:space-between; color:var(--muted); font-size:12px;
+    margin:6px 0 0; }
   .cats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:2px 14px; }
   .cats .check { margin-bottom:4px; }
   .off { opacity:.5; }
@@ -200,7 +219,7 @@ ${shop && apiKey ? '<script src="https://cdn.shopify.com/shopifycloud/app-bridge
 
   <div id="banners"></div>
 
-  <section>
+  <section data-static>
     <h2>Two things to do by hand</h2>
     <p class="hint">Neither can be done from here — both live in the theme, which this app does not have permission to edit.</p>
     <ol style="margin:0;padding-left:20px">
@@ -212,7 +231,7 @@ ${shop && apiKey ? '<script src="https://cdn.shopify.com/shopifycloud/app-bridge
     </ol>
   </section>
 
-  <section>
+  <section data-static>
     <h2>Status</h2>
     <p class="hint">Two switches control this app, and they do different jobs. The theme app embed
       decides whether the tags are on the page at all — that is a theme change, made in the theme
@@ -220,6 +239,20 @@ ${shop && apiKey ? '<script src="https://cdn.shopify.com/shopifycloud/app-bridge
       is the one to reach for if something looks wrong on a live store.</p>
     ${checkbox('enabled', 'Storefront PWA is active — customers can install the store as an app')}
     <p class="hint" id="enabledNote" style="margin:0"></p>
+  </section>
+
+  <section data-static>
+    <div class="row" style="justify-content:space-between;margin-bottom:4px">
+      <h2 style="margin:0">Installs</h2>
+      <button type="button" class="secondary" id="statsReload" style="padding:5px 11px;font-size:13px">Refresh</button>
+    </div>
+    <p class="hint">How many customers have added your store to a home screen or a desktop, counted on
+      the storefront itself. Nothing about the customer is recorded — the app keeps four numbers per
+      day and nothing else. Days run midnight to midnight UTC.</p>
+    <div class="stats" id="statTiles"></div>
+    <div class="chart" id="statChart"></div>
+    <p class="axis" id="statAxis"></p>
+    <p class="hint" id="statNote" style="margin:14px 0 0"></p>
   </section>
 
   <section>
@@ -455,10 +488,13 @@ function script() {
       ? 'Active. Customers who have not installed yet will be offered the app.'
       : 'Switched off. The manifest is still served, but it asks for a plain browser tab, so no ' +
         'browser will offer to install the store. Existing installs keep working.';
-    // Dim everything downstream of the switch: nothing below has any effect
-    // while the app is off, and saying so visually beats a banner.
-    var sections = document.querySelectorAll('section');
-    for (var i = 2; i < sections.length; i++) sections[i].className = on ? '' : 'off';
+    // Dim every section the switch governs: nothing in them has any effect
+    // while the app is off, and saying so visually beats a banner. The three
+    // marked data-static are exempt — the setup steps, this switch itself, and
+    // the install figures, which are history and do not stop being true
+    // because the app was turned off this morning.
+    var sections = document.querySelectorAll('section:not([data-static])');
+    for (var i = 0; i < sections.length; i++) sections[i].className = on ? '' : 'off';
   }
 
   /* The icon previews are the real renders, so the same image appears three
@@ -510,6 +546,113 @@ function script() {
     renderAsset('screenshotWide', 'Not set');
     renderAsset('screenshotNarrow', 'Not set');
   }
+
+  /* ---------------------------------------------------------------- stats */
+
+  function tile(value, label) {
+    var box = document.createElement('div');
+    box.className = 'tile';
+
+    var n = document.createElement('div');
+    n.className = 'n';
+    n.textContent = String(value);
+
+    var k = document.createElement('div');
+    k.className = 'k';
+    k.textContent = label;
+
+    box.appendChild(n);
+    box.appendChild(k);
+    return box;
+  }
+
+  function shortDate(iso) {
+    var d = new Date(iso + 'T00:00:00Z');
+    return isNaN(d) ? iso : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  }
+
+  /* Bars are scaled to the busiest day in the window, not to a fixed ceiling.
+   * A shop with two installs a week and a shop with two hundred both want to
+   * see the shape of their own traffic. */
+  function renderChart(series) {
+    var chart = el('statChart');
+    var axis = el('statAxis');
+    chart.innerHTML = '';
+    axis.innerHTML = '';
+
+    var peak = 0;
+    series.forEach(function (row) { if (row.installed > peak) peak = row.installed; });
+
+    series.forEach(function (row) {
+      var bar = document.createElement('div');
+      bar.className = row.installed ? 'bar' : 'bar zero';
+      bar.title = shortDate(row.date) + ': ' + row.installed +
+        (row.installed === 1 ? ' install' : ' installs');
+
+      var fill = document.createElement('i');
+      // Floored at 6% so a day with one install against a peak of two hundred
+      // is still a visible mark rather than a rounding error.
+      fill.style.height = peak && row.installed
+        ? Math.max(6, Math.round((row.installed / peak) * 100)) + '%'
+        : '2px';
+
+      bar.appendChild(fill);
+      chart.appendChild(bar);
+    });
+
+    var first = document.createElement('span');
+    first.textContent = series.length ? shortDate(series[0].date) : '';
+    var last = document.createElement('span');
+    last.textContent = 'Today' + (peak ? ' — busiest day: ' + peak : '');
+    axis.appendChild(first);
+    axis.appendChild(last);
+  }
+
+  function renderStats(data) {
+    var window_ = data.windowDays;
+    var tiles = el('statTiles');
+    tiles.innerHTML = '';
+
+    tiles.appendChild(tile(data.totals.installed, 'Installs, all time'));
+    tiles.appendChild(tile(data.recent.installed, 'Installs, last ' + window_ + ' days'));
+    tiles.appendChild(tile(data.recent.launch, 'App opens, last ' + window_ + ' days'));
+    tiles.appendChild(tile(data.recent.shown, 'Install card shown'));
+
+    renderChart(data.series);
+
+    var note = el('statNote');
+    if (!data.totals.installed && !data.totals.shown && !data.totals.launch) {
+      note.textContent = 'Nothing counted yet. Figures appear once the app embed is on and a ' +
+        'customer has seen the install card on your storefront.';
+      return;
+    }
+
+    var parts = [];
+    if (data.recent.shown) {
+      parts.push('The install card was shown ' + data.recent.shown + ' times and tapped ' +
+        data.recent.clicked + ' (' + Math.round((data.recent.clicked / data.recent.shown) * 100) + '%).');
+    }
+    if (data.lastEventAt) {
+      parts.push('Last activity ' + new Date(data.lastEventAt).toLocaleString() + '.');
+    }
+    // Said plainly rather than buried: the counters are keyed on browser
+    // storage, so a customer who installs on a phone and a laptop is two, and
+    // one who clears their storage and reinstalls is two as well.
+    parts.push('Counted once per browser, so these are close but not exact — clearing site data ' +
+      'or installing on a second device counts again. iOS installs appear the first time the ' +
+      'app is opened, not when it is added.');
+    note.textContent = parts.join(' ');
+  }
+
+  function loadStats() {
+    api('/api/stats').then(renderStats).catch(function (err) {
+      el('statNote').textContent = 'Could not load install figures: ' + err.message;
+    });
+  }
+
+  el('statsReload').addEventListener('click', loadStats);
+
+  /* --------------------------------------------------------------- render */
 
   function render() {
     FIELDS.forEach(function (pair) {
@@ -656,6 +799,10 @@ function script() {
   }
 
   load();
+  // Fired alongside, not chained: the figures are read-only and unrelated to
+  // the settings form, so a slow or failing stats read must not hold up the
+  // screen a merchant actually came here to edit.
+  loadStats();
 })();
 `;
 }

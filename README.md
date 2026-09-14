@@ -106,6 +106,7 @@ extensions/storefront-pwa/        theme app embed — injects the manifest link
 web/
   server.js                       routes: proxy surface + embedded admin
   settings.js                     per-shop JSON store
+  stats.js                        per-shop install counters (in memory, flushed to JSON)
   validate.js                     coercion for everything the admin sends
   manifest.js                     manifest construction + iOS splash table
   images.js                       sharp: icon, maskable, splash rendering
@@ -170,11 +171,12 @@ working default.
 Until a logo is uploaded the app generates a placeholder icon from the store's
 initial, so the store is installable from the moment the embed is on.
 
-The admin has ten sections:
+The admin has eleven sections:
 
 | Section | What it sets |
 |---|---|
 | **Status** | Master switch. Off leaves the theme untouched and makes the manifest non-installable. |
+| **Installs** | Read-only. How many customers installed, how often they open the app, and how the install card is performing. |
 | **App identity** | Name, short name, description, language, text direction, categories. |
 | **App icon** | Upload, and the live render shown under all three platform masks. |
 | **Appearance** | Theme and background colours, display mode, orientation. |
@@ -259,6 +261,44 @@ chrome affordance from customers who already installed:
 
 ---
 
+## Install figures
+
+The admin's **Installs** section answers the question the app exists to answer:
+is anyone actually installing this. Four counters, sent from `storefront/pwa.js`
+as a `navigator.sendBeacon` POST to `/apps/pwa/event?type=<event>`, held in
+memory and flushed to `DATA_DIR/stats/<shop>.json` every five seconds.
+
+| Event | Fired when | Deduplicated |
+|---|---|---|
+| `shown` | The install card appears | Once per tab session |
+| `clicked` | The visitor asks to install, by the card's button or a theme's `data-pwa-install` element | Once per tab session |
+| `installed` | `appinstalled` fires, or `userChoice` resolves as accepted | Once per browser, forever |
+| `launch` | A page loads in standalone display mode | Once per browser per UTC day |
+
+Three things about these numbers are worth stating plainly, and the admin states
+them too rather than presenting a count that looks more exact than it is:
+
+- **They are keyed on browser storage.** One customer installing on a phone and a
+  laptop is two; one who clears site data and reinstalls is also two.
+- **iOS installs are counted late.** Safari fires neither `appinstalled` nor
+  `beforeinstallprompt`, so an iOS install leaves no trace at the moment it
+  happens. The first *launch* of the installed app is the only evidence there
+  will ever be, and an iOS home screen app has its own storage separate from
+  Safari's — so the install is counted then, by `countLaunch`. Without that, iOS
+  would read as zero installs forever.
+- **The endpoint is public, and has to be.** It is called from a storefront page
+  with no session, so the counts are a number anyone with the URL can add to.
+  There is a per-address cap of 60 events a minute, which makes inflating them
+  cost more than a loop, and that is as far as a counter is worth defending.
+
+Nothing that identifies a person is sent or stored — the beacon carries an event
+name and nothing else, and the file holds four integers per day.
+
+Days are bucketed **midnight to midnight UTC**, not in the shop's timezone: the
+server does not know what timezone the shop trades in, and a bucket boundary
+that moves with the reader is worse than one that is stated. Buckets are kept for
+180 days.
+
 ## Caching
 
 | Path | Cache-Control | Why |
@@ -268,6 +308,7 @@ chrome affordance from customers who already installed:
 | `sw.js` | `no-cache` | A long-cached service worker is a fix you cannot ship. |
 | icons, splash, screenshots | `max-age=31536000, immutable` | Content-addressed by `?v=<rev>`. The rev hashes the upload *and* the colours and initial that the maskable, splash and placeholder renders are drawn from, so changing any of them changes every URL. |
 | `/offline`, `/check`, `/health` | `no-store` | A CDN copy of "you are offline" served to an online visitor is memorable. |
+| `/event` | `no-store`, POST only | A cacheable GET would have the edge answering the second install of the day and never reaching the counter. |
 
 ## Tests
 
@@ -275,12 +316,12 @@ chrome affordance from customers who already installed:
 npm test
 ```
 
-Boots the real server on a scratch `DATA_DIR` and makes 83 assertions across
+Boots the real server on a scratch `DATA_DIR` and makes 120 assertions across
 both surfaces: manifest shape and the same-origin `start_url` rule, icon and
 splash rendering, the size allow-lists, session-token rejection (no token, wrong
 secret, expired, wrong `aud`), settings coercion, the master switch, icon upload
-limits, cache-busting on a colour change, and the uninstall webhook's HMAC and
-data deletion.
+limits, cache-busting on a colour change, the install counters and their event
+allow-list, and the uninstall webhook's HMAC and data deletion.
 
 Two of those are there because they caught real bugs during development, and
 both would have reached a storefront silently:
@@ -299,9 +340,16 @@ both would have reached a storefront silently:
 
 ## Data
 
-`DATA_DIR` holds `shops/<shop>.json` and `assets/<shop>/`. Uploads are
-re-encoded to PNG through sharp, which also discards EXIF and any trailing
-payload. Derived renders are cached beside the source, keyed by content hash.
+`DATA_DIR` holds `shops/<shop>.json`, `assets/<shop>/` and `stats/<shop>.json`.
+Uploads are re-encoded to PNG through sharp, which also discards EXIF and any
+trailing payload. Derived renders are cached beside the source, keyed by content
+hash.
 
-The `app/uninstalled` webhook deletes both. Leaving a merchant's logo on disk
-after they remove the app is not something to be casual about.
+The `app/uninstalled` webhook deletes all three, and the stats cache entry goes
+with the file — a surviving entry would be flushed straight back onto disk on
+the next timer tick. Leaving a merchant's logo on disk after they remove the app
+is not something to be casual about.
+
+The counters assume a single process. The app listens on one port on 127.0.0.1
+and is not clustered; two processes sharing a `DATA_DIR` would each hold their
+own copy of a shop's counts and the last flush would win.

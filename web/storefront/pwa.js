@@ -19,6 +19,13 @@
   var DISMISS_KEY = 'shopify-pwa:dismissed-until';
   var INSTALLED_KEY = 'shopify-pwa:installed';
 
+  /* Counting keys. REPORTED is what stops one install being counted on every
+   * page view forever; LAUNCH_KEY holds the UTC day an open was last counted. */
+  var REPORTED_KEY = 'shopify-pwa:counted-install';
+  var LAUNCH_KEY = 'shopify-pwa:counted-launch-on';
+  var SEEN_KEY = 'shopify-pwa:counted-shown';
+  var CLICKED_KEY = 'shopify-pwa:counted-clicked';
+
   var deferredPrompt = null;
   var uiRoot = null;
   var shadow = null;
@@ -39,6 +46,21 @@
       return localStorage.getItem(key);
     } catch (e) {
       return null;
+    }
+  }
+
+  /* Session storage, for the two counters that mean "once per visit". A visit
+   * is the browser's own definition of a tab session, which is close enough to
+   * what a merchant means by it and costs nothing to obtain. */
+  function markSession(key) {
+    try {
+      if (sessionStorage.getItem(key) === '1') return false;
+      sessionStorage.setItem(key, '1');
+      return true;
+    } catch (e) {
+      // No session storage: count it. Over-counting a card impression is a far
+      // smaller error than silently counting nothing at all in private mode.
+      return true;
     }
   }
 
@@ -65,6 +87,78 @@
     } catch (e) {
       return false;
     }
+  }
+
+  /* ------------------------------------------------------------- counting */
+
+  /*
+   * Four counters, sent to the app's own backend through the proxy so the
+   * merchant can see whether any of this is working. No identifier of any kind
+   * goes with them — the request is a bare POST with the event name in the
+   * query string, and the server keeps one integer per event per day.
+   *
+   * sendBeacon is the right tool: it survives the page unloading, which matters
+   * because "installed" arrives at exactly the moment a browser may be handing
+   * the tab over to a freshly installed app window.
+   */
+  function send(type) {
+    if (!CFG.eventUrl || isAutomated()) return;
+    try {
+      var url = CFG.eventUrl + (CFG.eventUrl.indexOf('?') === -1 ? '?' : '&') +
+                'type=' + encodeURIComponent(type);
+      if (navigator.sendBeacon && navigator.sendBeacon(url)) return;
+      // Falls back to keepalive for the browsers that have fetch but refuse a
+      // beacon, and to nothing at all for the ones that have neither. A missed
+      // count is not worth an XHR that blocks unload.
+      if (window.fetch) window.fetch(url, { method: 'POST', keepalive: true }).catch(function () {});
+    } catch (e) { /* counting must never be able to break a storefront */ }
+  }
+
+  function utcDay() {
+    try {
+      return new Date().toISOString().slice(0, 10);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /*
+   * Counted once per browser, not once per event.
+   *
+   * Chrome and Edge fire `appinstalled` and also resolve userChoice as
+   * accepted, so both paths land here and the flag is what keeps that one
+   * install one install. On iOS neither signal exists at all — see
+   * countLaunch, which is the only evidence an iOS install ever leaves.
+   */
+  function countInstall() {
+    if (stored(REPORTED_KEY) === '1') return;
+    store(REPORTED_KEY, '1');
+    send('installed');
+  }
+
+  /*
+   * An open of the installed app, counted once per browser per UTC day.
+   *
+   * The daily cap is what makes this a usage figure rather than a page-view
+   * figure: without it every navigation inside a standalone window would count,
+   * and the number would say more about how deep people browse than about how
+   * often they come back.
+   *
+   * It also backfills the install on iOS. Safari has no appinstalled event and
+   * no beforeinstallprompt, so an iOS install is invisible until the app is
+   * first opened — and an iOS home screen app has its own storage, separate
+   * from Safari's, so the flag countInstall sets here is set for the first time
+   * on that first open. Without this, iOS would report zero installs forever.
+   */
+  function countLaunch() {
+    if (!isStandalone()) return;
+
+    countInstall();
+
+    var today = utcDay();
+    if (!today || stored(LAUNCH_KEY) === today) return;
+    store(LAUNCH_KEY, today);
+    send('launch');
   }
 
   function head() {
@@ -552,6 +646,12 @@
    * the user dismisses the dialog without installing.
    */
   function promptInstall() {
+    // Before the branch, so the click counts the same whether it opens a native
+    // dialog or a list of directions. The pair the merchant reads is "shown"
+    // against "clicked", and it would be a poor pair if half the platforms were
+    // missing from one side of it.
+    if (markSession(CLICKED_KEY)) send('clicked');
+
     if (!deferredPrompt) return showInstructions(true);
 
     var evt = deferredPrompt;
@@ -567,6 +667,7 @@
       evt.userChoice.then(function (choice) {
         if (choice && choice.outcome === 'accepted') {
           store(INSTALLED_KEY, '1');
+          countInstall();
           hideCard();
         } else {
           dismiss();
@@ -603,7 +704,10 @@
        * route (desktop Firefox, anything unrecognised). Offering an Install
        * button there would be a button that cannot work.
        */
-      if (deferredPrompt || instructionsFor(platform()).length) showPrompt();
+      if (deferredPrompt || instructionsFor(platform()).length) {
+        showPrompt();
+        if (markSession(SEEN_KEY)) send('shown');
+      }
     }, Math.max(0, CFG.install.delaySeconds) * 1000);
   }
 
@@ -642,6 +746,7 @@
     try { CFG.origin = window.location.origin; } catch (e) { CFG.origin = ''; }
 
     markStandalone();
+    countLaunch();
     applyHeadTags();
     registerServiceWorker();
 
@@ -655,6 +760,7 @@
 
     window.addEventListener('appinstalled', function () {
       store(INSTALLED_KEY, '1');
+      countInstall();
       deferredPrompt = null;
       window.ShopifyPWA.canPrompt = false;
       hideCard();
