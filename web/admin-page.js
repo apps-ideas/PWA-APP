@@ -98,6 +98,18 @@ const STYLES = `
   .chart .bar.zero i { background:var(--line); opacity:1; }
   .axis { display:flex; justify-content:space-between; color:var(--muted); font-size:12px;
     margin:6px 0 0; }
+  /* What a forced refresh does and does not reach. A table rather than prose
+     because the useful thing is the per-cache verdict, and four of those in a
+     paragraph is four sentences nobody finishes. */
+  .what { border-collapse:collapse; width:100%; font-size:13px; }
+  .what td { border-top:1px solid var(--line); padding:8px 0; vertical-align:top; }
+  .what tr:first-child td { border-top:0; }
+  .what td:first-child { color:var(--muted); padding-right:16px; width:36%; }
+  @media (max-width:560px) {
+    .what td { display:block; border-top:0; padding:2px 0; }
+    .what td:first-child { width:auto; padding-top:10px; border-top:1px solid var(--line); }
+    .what tr:first-child td:first-child { border-top:0; }
+  }
   .cats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:2px 14px; }
   .cats .check { margin-bottom:4px; }
   .off { opacity:.5; }
@@ -359,6 +371,26 @@ ${shop && apiKey ? '<script src="https://cdn.shopify.com/shopifycloud/app-bridge
     </p>
     ${checkbox('swEnabled', 'Register a service worker')}
     ${checkbox('swOfflinePage', 'Precache an offline fallback page')}
+  </section>
+
+  <section data-static>
+    <h2>Not seeing your changes?</h2>
+    <p class="hint">Saving is instant here, but four different caches sit between this screen and a
+      customer's phone. This forces the two that can be forced.</p>
+    <table class="what">
+      <tr><td>App icon, launch screens</td><td><strong>Refreshed now.</strong> Every image gets a new
+        address, so nothing can serve the old one.</td></tr>
+      <tr><td>Service worker cache</td><td><strong>Cleared on each visitor's next page view.</strong>
+        The new worker deletes the old cache when it takes over.</td></tr>
+      <tr><td>Manifest and storefront script</td><td>Expire on their own within
+        <strong>5 and 10 minutes</strong>. Shopify has no way to purge these early, so no button can.</td></tr>
+      <tr><td>Apps already on a home screen</td><td>Keep the name and icon captured when they were
+        installed. Android may pick up a change eventually; <strong>iOS needs a reinstall</strong>.</td></tr>
+    </table>
+    <div class="row" style="margin-top:14px">
+      <button type="button" class="secondary" id="clearCache">Force a refresh</button>
+      <span class="muted" id="clearCacheNote"></span>
+    </div>
   </section>
 
   <div class="savebar">
@@ -784,6 +816,29 @@ function script() {
   });
 
   el('reload').addEventListener('click', function () { load(); });
+
+  el('clearCache').addEventListener('click', function () {
+    var button = el('clearCache');
+    var note = el('clearCacheNote');
+    button.disabled = true;
+    note.textContent = 'Refreshing…';
+
+    api('/api/cache/clear', { method: 'POST' }).then(function (body) {
+      // The whole settings object comes back, so re-render rather than patching
+      // state: the refresh moved renderVersion and the cache version, and the
+      // icon previews are now at new URLs.
+      state = body.settings;
+      previews = body.previews || {};
+      render();
+      note.textContent = 'Done at ' + new Date().toLocaleTimeString() +
+        '. Images are refreshed; the rest follows within ten minutes.';
+    }).catch(function (err) {
+      note.textContent = '';
+      banner('bad', 'Could not force a refresh', [err.message]);
+    }).then(function () {
+      button.disabled = false;
+    });
+  });
 
   function load() {
     status('Loading…');

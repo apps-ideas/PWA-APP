@@ -105,6 +105,10 @@ function renderRev(settings) {
     // Only the placeholder depends on the name, but including it always is
     // cheaper than reasoning about when it matters.
     (settings.shortName || settings.name || '?').trim().charAt(0).toUpperCase(),
+    // The manual escape hatch. Nothing reads it but this hash — it is here so
+    // that "Force a refresh" in the admin can move every derived URL without
+    // the merchant having to change a colour they are happy with.
+    settings.renderVersion || 1,
   ].join('|');
   return crypto.createHash('sha256').update(seed).digest('hex').slice(0, 12);
 }

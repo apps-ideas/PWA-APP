@@ -104,6 +104,17 @@ function defaults(shop) {
       screenshotNarrow: emptyAsset(),
     },
 
+    // Bumped only by the admin's "Force a refresh" button, and folded into
+    // renderRev so that pressing it moves every icon and splash URL.
+    //
+    // It exists because the other inputs to renderRev are all things a merchant
+    // might not want to change. The renders are served immutable for a year, so
+    // without a value that can be moved on demand there is no way to flush a
+    // render that is stale for some reason we did not anticipate — a half-
+    // written file, a sharp upgrade that draws differently. A counter is the
+    // whole fix.
+    renderVersion: 1,
+
     // iOS: Safari ignores most of the manifest before 16.4, and even now it
     // prefers apple-touch-icon and its own startup images.
     ios: { splash: true, statusBarStyle: 'default' },

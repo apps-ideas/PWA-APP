@@ -171,7 +171,7 @@ working default.
 Until a logo is uploaded the app generates a placeholder icon from the store's
 initial, so the store is installable from the moment the embed is on.
 
-The admin has eleven sections:
+The admin has twelve sections:
 
 | Section | What it sets |
 |---|---|
@@ -185,6 +185,7 @@ The admin has eleven sections:
 | **iOS** | Launch screens, status bar style. |
 | **Screenshots** | A wide and a narrow image for the richer install dialogs. |
 | **Offline browsing** | The service worker toggle, and why it cannot work here. |
+| **Not seeing your changes?** | What each cache holds and when it lets go, and a button that forces the two that can be forced. |
 
 Two of those are worth knowing about before you use them.
 
@@ -310,18 +311,42 @@ that moves with the reader is worse than one that is stated. Buckets are kept fo
 | `/offline`, `/check`, `/health` | `no-store` | A CDN copy of "you are offline" served to an online visitor is memorable. |
 | `/event` | `no-store`, POST only | A cacheable GET would have the edge answering the second install of the day and never reaching the counter. |
 
+## Forcing a refresh
+
+Four caches sit between the admin and a customer's phone, and the admin's **Not
+seeing your changes?** section forces the two that can be forced.
+
+| Cache | Held by | What the button does |
+|---|---|---|
+| Derived renders — icons, maskables, splash screens, thumbnails | Browser and CDN, `immutable` for a year | Bumps `renderVersion`, which feeds `renderRev`, so **every URL moves**. Deletes the superseded files from disk. |
+| Service worker Cache Storage | The visitor's browser | Bumps `serviceWorker.cacheVersion`. `sw.js` deletes every `shopify-pwa-*` cache that is not the current pair when it activates, and since `sw.js` is `no-cache` and `pwa.js` re-registers on every page view, that lands on the **visitor's next page view**. |
+| `manifest.json`, `pwa.js` | Browser and CDN, `max-age` 300 and 600 | **Nothing.** There is no purge API for app proxy responses. They expire on their own within ten minutes, which is exactly why they are cached for minutes and not for the year the icons get. |
+| An app already on a home screen | The operating system | **Nothing.** The name and icon were captured at install. Android may pick up a manifest change eventually; iOS needs a reinstall. |
+
+`renderVersion` exists because every other input to `renderRev` is something a
+merchant might not want to change. The renders are served immutable for a year,
+so without a value that can be moved on demand there is no way to flush one that
+is stale for a reason nobody anticipated. A counter is the whole fix.
+
+It is not client-writable, and — the part worth knowing if you touch
+`validate.js` — it has to be carried across explicitly rather than left to the
+`...base` spread. `sanitise()` builds its result on top of `defaults()`, so a
+counter that is not named there is silently reset to 1 by the merchant's next
+save, undoing the refresh they just asked for. There is a test for exactly that.
+
 ## Tests
 
 ```bash
 npm test
 ```
 
-Boots the real server on a scratch `DATA_DIR` and makes 120 assertions across
+Boots the real server on a scratch `DATA_DIR` and makes 135 assertions across
 both surfaces: manifest shape and the same-origin `start_url` rule, icon and
 splash rendering, the size allow-lists, session-token rejection (no token, wrong
 secret, expired, wrong `aud`), settings coercion, the master switch, icon upload
-limits, cache-busting on a colour change, the install counters and their event
-allow-list, and the uninstall webhook's HMAC and data deletion.
+limits, cache-busting on a colour change and on a forced refresh, the install
+counters and their event allow-list, and the uninstall webhook's HMAC and data
+deletion.
 
 Two of those are there because they caught real bugs during development, and
 both would have reached a storefront silently:

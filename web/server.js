@@ -493,6 +493,55 @@ app.post('/api/settings', auth.requireSession, (req, res) => {
 });
 
 /**
+ * Force every cache this app can reach to let go.
+ *
+ * Three layers hold a copy of something this app serves, and only two of them
+ * can be reached from here. Both are reached by moving a version, because
+ * nothing else works: you cannot reach into a browser's cache, and a merchant
+ * who changed nothing has no other way to change a URL.
+ *
+ *   Derived renders   `renderVersion` feeds renderRev, so a bump moves every
+ *                     icon, maskable, splash and thumbnail URL at once. They
+ *                     are served immutable for a year, so a new URL is the only
+ *                     flush there is. The files on disk go too, or the old
+ *                     renders sit there forever under keys nothing will ask for
+ *                     again.
+ *   Service worker    `cacheVersion` names the worker's two Cache Storage
+ *                     buckets, and sw.js deletes every `shopify-pwa-*` cache
+ *                     that is not the current pair when it activates. sw.js is
+ *                     served no-cache and pwa.js re-registers on every page
+ *                     view, so a bump reaches a visitor on their next one.
+ *
+ * What it cannot do, and what the admin says plainly rather than implying
+ * otherwise: purge the browser and CDN copies of manifest.json and pwa.js.
+ * There is no purge API for app proxy responses. They carry max-age of 300 and
+ * 600, so they expire on their own within ten minutes — which is why those two
+ * are cached for minutes and not for the year the icons get.
+ */
+app.post('/api/cache/clear', auth.requireSession, async (req, res, next) => {
+  try {
+    const current = settingsStore.read(req.shop);
+    const saved = settingsStore.write(req.shop, {
+      ...current,
+      renderVersion: current.renderVersion + 1,
+      serviceWorker: {
+        ...current.serviceWorker,
+        cacheVersion: current.serviceWorker.cacheVersion + 1,
+      },
+    });
+
+    // After the write, not before: if the write throws, the renders on disk
+    // still match the settings that are still in force.
+    images.clearDerived(req.shop);
+
+    res.set('Cache-Control', 'no-store');
+    res.json({ settings: saved, previews: await images.thumbnails(req.shop, saved) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * Image upload. Raw bytes with an image/* content type rather than multipart:
  * one field, no dependency, and nothing to parse but the body.
  */

@@ -377,6 +377,82 @@ async function run() {
   res = await fetch(proxyUrl('/icon-192-maskable.png'));
   ok('the recoloured maskable icon renders', res.status === 200 && isPng(Buffer.from(await res.arrayBuffer())));
 
+  console.log('\n== forcing a refresh ==');
+
+  const swVersion = async () =>
+    JSON.parse((await (await fetch(proxyUrl('/sw.js'))).text()).match(/var CFG = (\{.*?\});/)[1]).version;
+
+  const derivedDir = path.join(DATA_DIR, 'assets', SHOP, 'derived');
+
+  // Ask for a splash and an icon first, so there is something on disk to clear.
+  await fetch(proxyUrl('/splash-1170x2532.png'));
+  await fetch(proxyUrl('/icon-512.png'));
+  ok('derived renders are cached on disk', fs.existsSync(derivedDir) &&
+    fs.readdirSync(derivedDir).length > 0);
+
+  const iconsBefore = (await (await fetch(proxyUrl('/manifest.json'))).json()).icons[0].src;
+  const swBefore = await swVersion();
+  const renderVersionBefore = (await (await admin('/api/settings')).json()).settings.renderVersion;
+
+  res = await fetch(BASE + '/api/cache/clear', { method: 'POST' });
+  ok('forcing a refresh needs a session token', res.status === 401, 'got ' + res.status);
+
+  res = await admin('/api/cache/clear', { method: 'POST' });
+  const refreshed = await res.json();
+  ok('forcing a refresh is 200', res.status === 200, 'got ' + res.status);
+  ok('it bumps the render version',
+    refreshed.settings.renderVersion === renderVersionBefore + 1, String(refreshed.settings.renderVersion));
+  ok('it bumps the service worker cache version',
+    (await swVersion()) === swBefore + 1, String(await swVersion()));
+  // Not "the directory is empty": the response re-renders the admin's preview
+  // thumbnails, so it legitimately holds fresh files at the new rev by the time
+  // we look. What must be gone is everything keyed on the old one, or the
+  // superseded renders would sit there forever under keys nothing asks for.
+  const oldRev = new URL('http://x' + iconsBefore).searchParams.get('v');
+  const survivors = fs.existsSync(derivedDir)
+    ? fs.readdirSync(derivedDir).filter((f) => f.includes(oldRev))
+    : [];
+  ok('it clears the superseded renders off disk', survivors.length === 0, survivors.join(','));
+  ok('and the rev it cleared was a real one', Boolean(oldRev), String(oldRev));
+  ok('previews are re-rendered for the admin', typeof refreshed.previews.icon === 'string' &&
+    refreshed.previews.icon.startsWith('data:image/png;base64,'));
+
+  const iconsAfter = (await (await fetch(proxyUrl('/manifest.json'))).json()).icons[0].src;
+  ok('every icon URL moves, so the year-long cache cannot serve the old one',
+    iconsAfter !== iconsBefore, iconsBefore + ' -> ' + iconsAfter);
+
+  res = await fetch(proxyUrl('/icon-512.png'));
+  ok('icons still render at the new address',
+    res.status === 200 && isPng(Buffer.from(await res.arrayBuffer())), 'status ' + res.status);
+
+  // Nothing the merchant chose may move: a refresh is a cache operation, not an
+  // edit, and a button that quietly reset a colour would be worse than no
+  // button at all.
+  ok('the merchant’s own settings are untouched',
+    refreshed.settings.name === backOn.settings.name &&
+    refreshed.settings.backgroundColor === '#123456' &&
+    refreshed.settings.enabled === true,
+    JSON.stringify({ n: refreshed.settings.name, b: refreshed.settings.backgroundColor }));
+
+  // The subtle one. sanitise() builds its result by spreading defaults(), so a
+  // counter that is not carried across explicitly is silently reset to 1 by the
+  // merchant's next save — undoing the refresh they just asked for.
+  res = await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({}, refreshed.settings, { name: 'Renamed After Refresh' })),
+  });
+  const afterSave = await res.json();
+  ok('an ordinary save does not undo the refresh',
+    afterSave.settings.renderVersion === renderVersionBefore + 1,
+    String(afterSave.settings.renderVersion));
+  ok('and a client cannot forge the render version',
+    (await (await admin('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({}, refreshed.settings, { renderVersion: 9999 })),
+    })).json()).settings.renderVersion === renderVersionBefore + 1);
+
   console.log('\n== install counters ==');
 
   // The storefront sends these as a bare beacon: POST, no body, event name in
