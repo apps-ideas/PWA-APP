@@ -5,5 +5,5 @@ node_modules/
 
 # Generated at runtime: the per-shop settings store, the uploaded source icons
 # and the derived icon/splash renders. In production these live under
-# /var/lib/gaapps/pwa-app instead — see DATA_DIR in .env.example.
+# /var/lib/gaapps/storefront-pwa-live instead — see DATA_DIR in .env.example.
 data/

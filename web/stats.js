@@ -27,16 +27,30 @@ const STATS_DIR = path.join(settingsStore.DATA_DIR, 'stats');
 fs.mkdirSync(STATS_DIR, { recursive: true });
 
 /**
- * The four things worth counting, and what each one means.
+ * The five things worth counting, and what each one means.
  *
  *   shown      the install card appeared, once per visit
  *   clicked    the visitor asked to install, once per visit
+ *   dismissed  the visitor said no — "Not now", or the native dialog refused
  *   installed  the app reached a home screen or desktop, once per browser
  *   launch     the installed app was opened, once per browser per day
  *
  * `installed` is the headline number and the only one that is not a rate.
+ * `dismissed` is its opposite number and is what makes the admin's two rows of
+ * tiles a comparison rather than a single figure with no denominator.
  */
-const EVENTS = ['shown', 'clicked', 'installed', 'launch'];
+const EVENTS = ['shown', 'clicked', 'dismissed', 'installed', 'launch'];
+
+/**
+ * The device families the counters are split by.
+ *
+ * Coarse on purpose. A merchant deciding whether their iOS install copy is
+ * working needs three buckets, not a browser matrix — and the narrower the
+ * buckets, the closer this gets to being a fingerprint of a visitor rather than
+ * a count of an event. `other` catches anything the storefront script could not
+ * place, including a missing or nonsense value on a public endpoint.
+ */
+const PLATFORMS = ['ios', 'android', 'desktop', 'other'];
 
 /** Six months of daily buckets. Long enough to show a season, short enough
  *  that a busy shop's file stays a few kilobytes. */
@@ -83,32 +97,71 @@ function emptyCounts() {
   return counts;
 }
 
+function emptyPlatforms() {
+  const out = {};
+  for (const platform of PLATFORMS) out[platform] = emptyCounts();
+  return out;
+}
+
+function emptyDay() {
+  return { ...emptyCounts(), platforms: emptyPlatforms() };
+}
+
+/** Normalise whatever arrived on the public endpoint to one of PLATFORMS. */
+function platformKey(value) {
+  const key = String(value || '').toLowerCase();
+  return PLATFORMS.includes(key) ? key : 'other';
+}
+
 function blank(shop) {
   return {
-    version: 1,
+    version: 2,
     shop: shop || null,
     totals: emptyCounts(),
+    platformTotals: emptyPlatforms(),
     days: {},
     firstEventAt: null,
     lastEventAt: null,
   };
 }
 
-/** Merge a stored file over a blank record, so a file written by an older
- *  version of this app can never hand an undefined counter to the admin. */
+/**
+ * Merge a stored file over a blank record, so a file written by an older
+ * version of this app can never hand an undefined counter to the admin.
+ *
+ * A version 1 file has no platform breakdown at all, and there is no way to
+ * invent one after the fact — those days stay split entirely into `other`,
+ * which is honest about what was recorded rather than guessing.
+ */
 function hydrate(shop, stored) {
   const base = blank(shop);
   const days = {};
 
   for (const [day, counts] of Object.entries((stored && stored.days) || {})) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) days[day] = { ...emptyCounts(), ...counts };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+
+    const platforms = emptyPlatforms();
+    for (const platform of PLATFORMS) {
+      const saved = (counts && counts.platforms && counts.platforms[platform]) || {};
+      platforms[platform] = { ...emptyCounts(), ...saved };
+    }
+
+    days[day] = { ...emptyCounts(), ...counts, platforms };
+  }
+
+  const platformTotals = emptyPlatforms();
+  for (const platform of PLATFORMS) {
+    const saved = (stored && stored.platformTotals && stored.platformTotals[platform]) || {};
+    platformTotals[platform] = { ...emptyCounts(), ...saved };
   }
 
   return {
     ...base,
     ...stored,
+    version: 2,
     shop,
     totals: { ...base.totals, ...((stored && stored.totals) || {}) },
+    platformTotals,
     days,
   };
 }
@@ -145,7 +198,7 @@ function prune(data) {
  * public storefront endpoint, and an open-ended key space inside a file we keep
  * for six months is not something to hand to the internet.
  */
-function record(shop, event) {
+function record(shop, event, platform) {
   if (!settingsStore.isValidShop(shop) || !EVENTS.includes(event)) return false;
 
   // Only consulted once the cache is full, and only for a shop not already in
@@ -157,10 +210,13 @@ function record(shop, event) {
   const entry = load(shop);
   const now = new Date();
   const day = dayKey(now);
+  const device = platformKey(platform);
 
-  if (!entry.data.days[day]) entry.data.days[day] = emptyCounts();
+  if (!entry.data.days[day]) entry.data.days[day] = emptyDay();
   entry.data.days[day][event] += 1;
+  entry.data.days[day].platforms[device][event] += 1;
   entry.data.totals[event] += 1;
+  entry.data.platformTotals[device][event] += 1;
   entry.data.lastEventAt = now.toISOString();
   if (!entry.data.firstEventAt) entry.data.firstEventAt = entry.data.lastEventAt;
   entry.dirty = true;
@@ -207,19 +263,36 @@ function summary(shop, windowDays) {
 
   const series = [];
   const recent = emptyCounts();
+  const platformRecent = emptyPlatforms();
 
   for (let i = days - 1; i >= 0; i--) {
     const day = dayKey(new Date(midnight - i * 86400000));
-    const counts = data.days[day] || emptyCounts();
-    for (const event of EVENTS) recent[event] += counts[event];
+    const bucket = data.days[day] || emptyDay();
+
+    for (const event of EVENTS) {
+      recent[event] += bucket[event];
+      for (const platform of PLATFORMS) {
+        platformRecent[platform][event] += bucket.platforms[platform][event];
+      }
+    }
+
+    // The per-platform detail is dropped from the series: the chart plots one
+    // bar per day, and shipping four times the rows for a breakdown nothing
+    // reads would quadruple the payload of the busiest response this app has.
+    const { platforms, ...counts } = bucket;
     series.push({ date: day, ...counts });
   }
 
   return {
     shop,
     windowDays: days,
+    retainDays: RETAIN_DAYS,
+    events: EVENTS,
+    platforms: PLATFORMS,
     totals: data.totals,
+    platformTotals: data.platformTotals,
     recent,
+    platformRecent,
     series,
     firstEventAt: data.firstEventAt,
     lastEventAt: data.lastEventAt,
@@ -262,6 +335,7 @@ function start() {
 module.exports = {
   EVENTS,
   FLUSH_MS,
+  PLATFORMS,
   RETAIN_DAYS,
   STATS_DIR,
   flush,

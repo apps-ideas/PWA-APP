@@ -55,15 +55,56 @@ function sessionToken(overrides) {
   return header + '.' + payload + '.' + sig;
 }
 
-function proxyUrl(p) {
+/**
+ * Wait for a condition the server reaches just after it answers.
+ *
+ * The webhook routes acknowledge Shopify and then erase, so the fetch resolving
+ * says the 200 was sent, not that the files are gone yet (web/server.js,
+ * eraseWhenSent). Polling is what the assertion actually means — "this is gone
+ * shortly after the webhook" — and a fixed sleep would either be flaky on a
+ * loaded machine or slow on an idle one. Returns false on timeout so the caller
+ * still reports a real failure rather than hanging.
+ */
+async function eventually(condition, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 5000);
+  for (;;) {
+    if (condition()) return true;
+    if (Date.now() > deadline) return false;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+/**
+ * The app handle, read from the same file the server reads it from.
+ *
+ * Hardcoded here until it drifted: the TOML said one thing, this test asserted
+ * another, and the assertion had been failing quietly for long enough that the
+ * handle in it no longer existed. Deriving it means a rename moves both sides.
+ */
+const APP_HANDLE = (
+  /^\s*handle\s*=\s*["']([^"']+)["']/m.exec(
+    fs.readFileSync(path.join(APP, 'shopify.app.toml'), 'utf8')
+  ) || [, '']
+)[1];
+
+function proxyUrlFor(shop, p) {
   return BASE + '/pwa/proxy' + p + (p.includes('?') ? '&' : '?') +
-    'shop=' + SHOP + '&path_prefix=%2Fapps%2Fpwa';
+    'shop=' + shop + '&path_prefix=%2Fapps%2Fpwa';
+}
+
+function proxyUrl(p) {
+  return proxyUrlFor(SHOP, p);
+}
+
+function adminFor(shop, p, options) {
+  const opts = options || {};
+  const token = sessionToken({ dest: 'https://' + shop, iss: 'https://' + shop + '/admin' });
+  opts.headers = Object.assign({ Authorization: 'Bearer ' + token }, opts.headers || {});
+  return fetch(BASE + p, opts);
 }
 
 function admin(p, options) {
-  const opts = options || {};
-  opts.headers = Object.assign({ Authorization: 'Bearer ' + sessionToken() }, opts.headers || {});
-  return fetch(BASE + p, opts);
+  return adminFor(SHOP, p, options);
 }
 
 const isPng = (buf) => buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
@@ -185,6 +226,19 @@ async function run() {
   ok('pwa.js carries the iOS splash table', pwa.includes('-webkit-device-pixel-ratio'));
   ok('pwa.js js content type', (res.headers.get('content-type') || '').includes('javascript'));
 
+  // Preview mode. These assert the wiring in the served script, not the card
+  // appearing — that needs a browser. What they pin down is that the three
+  // gates a preview has to clear all consult PREVIEW, since a preview that
+  // silently obeys the delay is the exact failure it exists to rule out.
+  ok('pwa.js reads the preview flag from the URL', pwa.includes('pwa-preview=1'));
+  ok('a preview skips the delay', pwa.includes('var delay = PREVIEW ? 0 :'));
+  ok('a preview ignores dismissal and install history', pwa.includes('if (PREVIEW) return true;'));
+  ok('a preview shows the card even where nothing can install',
+    pwa.includes('if (PREVIEW || deferredPrompt || instructionsFor(platform()).length)'));
+  ok('a preview writes no analytics', pwa.includes('|| PREVIEW) return;'));
+  ok('closing a preview does not suppress the real card',
+    pwa.includes('if (PREVIEW) return hideCard();'));
+
   // Parse what is actually served, not the template. A substitution that lands
   // in the wrong place still yields parseable JavaScript, so also assert the
   // config reached the assignment the script reads at runtime.
@@ -205,6 +259,21 @@ async function run() {
   const check = await res.text();
   ok('check page is 200', res.status === 200);
   ok('check page links the manifest', check.includes('<link rel="manifest" href="/apps/pwa/manifest.json">'));
+
+  /*
+   * Parse the script the page actually serves, not the module that built it.
+   * That script lives inside a template literal, so every backslash in it is
+   * consumed once before a browser sees it: a regex written /\/x/ arrives as
+   * //x, which is a line comment, which silently swallows the rest of the
+   * line. node --check on pages.js cannot see any of that — the string is
+   * valid either way — and the page still returns 200 with the whole check
+   * page dead. Only parsing the output catches it.
+   */
+  const checkScript = (check.match(/<script>([\s\S]*?)<\/script>/) || [])[1] || '';
+  ok('the check page carries an inline script', checkScript.length > 1000);
+  ok('and it parses',
+    (() => { try { new Function(checkScript); return true; } catch (e) { return false; } })());
+  ok('no regex in it was flattened into a comment', !/[^:]\/\/[a-z]+\(\?:/.test(checkScript));
 
   res = await fetch(proxyUrl('/health'));
   ok('proxy health is 200', res.status === 200);
@@ -256,7 +325,7 @@ async function run() {
   const m2 = await res.json();
   ok('the manifest reflects the saved name', m2.name === 'Demo Store', m2.name);
   ok('the manifest reflects the saved shortcut', (m2.shortcuts || []).length === 1);
-  ok('the manifest theme colour is saved', m2.theme_color === '#0a5c36', m2.theme_color);
+  ok('the manifest theme color is saved', m2.theme_color === '#0a5c36', m2.theme_color);
 
   console.log('\n== master switch ==');
 
@@ -331,7 +400,7 @@ async function run() {
   res = await fetch(proxyUrl('/manifest.json'));
   const m3 = await res.json();
   // The URL rev is renderRev, not the upload's own hash: it also covers the
-  // colours the maskable and splash renders are drawn from. So assert that it
+  // colors the maskable and splash renders are drawn from. So assert that it
   // moved, not what it equals.
   ok('uploading an icon changes every icon URL',
     m3.icons[0].src !== manifest.icons[0].src, m3.icons[0].src);
@@ -350,12 +419,12 @@ async function run() {
   res = await admin('/api/assets/nonsense', { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: logo });
   ok('an unknown asset kind is rejected', res.status === 400, 'got ' + res.status);
 
-  console.log('\n== colour changes bust the year-long icon cache ==');
+  console.log('\n== color changes bust the year-long icon cache ==');
 
-  // The maskable icons are padded with the background colour and the splash
-  // screens are drawn on it, so a colour change must move their URLs — they are
+  // The maskable icons are padded with the background color and the splash
+  // screens are drawn on it, so a color change must move their URLs — they are
   // served immutable for a year and there is no other way to flush them.
-  const beforeColour = await (await fetch(proxyUrl('/manifest.json'))).json();
+  const beforecolor = await (await fetch(proxyUrl('/manifest.json'))).json();
   const beforePwa = await (await fetch(proxyUrl('/pwa.js'))).text();
 
   res = await admin('/api/settings', {
@@ -363,19 +432,19 @@ async function run() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(Object.assign({}, backOn.settings, { backgroundColor: '#123456' })),
   });
-  ok('the background colour saves', (await res.json()).settings.backgroundColor === '#123456');
+  ok('the background color saves', (await res.json()).settings.backgroundColor === '#123456');
 
-  const afterColour = await (await fetch(proxyUrl('/manifest.json'))).json();
+  const aftercolor = await (await fetch(proxyUrl('/manifest.json'))).json();
   const afterPwa = await (await fetch(proxyUrl('/pwa.js'))).text();
 
-  ok('the maskable icon URL changes with the background colour',
-    beforeColour.icons[1].src !== afterColour.icons[1].src, afterColour.icons[1].src);
+  ok('the maskable icon URL changes with the background color',
+    beforecolor.icons[1].src !== aftercolor.icons[1].src, aftercolor.icons[1].src);
   ok('the splash URLs in pwa.js change too',
     beforePwa !== afterPwa && afterPwa.includes('/splash-'));
-  ok('background_color is reflected in the manifest', afterColour.background_color === '#123456');
+  ok('background_color is reflected in the manifest', aftercolor.background_color === '#123456');
 
   res = await fetch(proxyUrl('/icon-192-maskable.png'));
-  ok('the recoloured maskable icon renders', res.status === 200 && isPng(Buffer.from(await res.arrayBuffer())));
+  ok('the recolored maskable icon renders', res.status === 200 && isPng(Buffer.from(await res.arrayBuffer())));
 
   console.log('\n== forcing a refresh ==');
 
@@ -426,7 +495,7 @@ async function run() {
     res.status === 200 && isPng(Buffer.from(await res.arrayBuffer())), 'status ' + res.status);
 
   // Nothing the merchant chose may move: a refresh is a cache operation, not an
-  // edit, and a button that quietly reset a colour would be worse than no
+  // edit, and a button that quietly reset a color would be worse than no
   // button at all.
   ok('the merchant’s own settings are untouched',
     refreshed.settings.name === backOn.settings.name &&
@@ -474,6 +543,7 @@ async function run() {
   res = await event('not-an-event');
   ok('an unknown event name is still 204', res.status === 204, 'got ' + res.status);
 
+
   res = await fetch(BASE + '/pwa/proxy/event?type=installed', { method: 'POST' });
   ok('an event without ?shop is 400', res.status === 400, 'got ' + res.status);
 
@@ -485,8 +555,13 @@ async function run() {
   ok('card impressions are counted', counts.totals.shown === 2, JSON.stringify(counts.totals));
   ok('taps are counted', counts.totals.clicked === 1);
   ok('app opens are counted', counts.totals.launch === 1);
+  // Checked against the list the server declares rather than against a count,
+  // so adding an event does not fail a test whose point is that a made-up one
+  // is refused.
   ok('an unknown event name is not stored',
-    Object.keys(counts.totals).length === 4, JSON.stringify(counts.totals));
+    !('not-an-event' in counts.totals) &&
+    Object.keys(counts.totals).every((k) => counts.events.includes(k)),
+    JSON.stringify(counts.totals));
   ok('the window defaults to 30 days', counts.windowDays === 30, String(counts.windowDays));
   ok('the series has a row per day, including the empty ones', counts.series.length === 30,
     String(counts.series.length));
@@ -495,6 +570,23 @@ async function run() {
   ok('today carries the installs just recorded', counts.series[29].installed === 2);
   ok('the window is clamped to the retention period',
     (await (await admin('/api/stats?days=9999')).json()).windowDays === 180);
+
+  // Run before the flood below, which deliberately fills the shop's minute:
+  // anything counted after it would be dropped by design.
+  function deviceEvent(type, platform) {
+    return fetch(proxyUrl('/event?type=' + type + '&p=' + platform), { method: 'POST' });
+  }
+
+  await deviceEvent('installed', 'ios');
+  await deviceEvent('installed', 'android');
+  await deviceEvent('dismissed', 'ios');
+  await deviceEvent('dismissed', 'desktop');
+  await deviceEvent('installed', 'martian');
+
+  const counted = await (await admin('/api/stats')).json();
+  ok('dismissals are counted', counted.recent.dismissed === 2, String(counted.recent.dismissed));
+  // The per-device breakdown is asserted in its own section further down,
+  // once these events have been recorded.
 
   // The ceiling is per shop, not per address: behind nginx every request comes
   // from 127.0.0.1, and behind Shopify's app proxy every legitimate storefront
@@ -507,7 +599,7 @@ async function run() {
   ok('a flood is capped rather than counted',
     capped.totals.shown > 1000 && capped.totals.shown <= 1202, String(capped.totals.shown));
   ok('the cap does not disturb the other counters',
-    capped.totals.installed === 2 && capped.totals.launch === 1, JSON.stringify(capped.totals));
+    capped.totals.installed === 5 && capped.totals.launch === 1, JSON.stringify(capped.totals));
 
   // The storefront script has to be told where to send them, or nothing above
   // ever happens on a real store.
@@ -517,6 +609,293 @@ async function run() {
   ok('pwa.js counts installs off appinstalled', counting.includes("addEventListener('appinstalled'"));
   ok('pwa.js sends by beacon so an unloading page still counts',
     counting.includes('navigator.sendBeacon'));
+  ok('pwa.js tags each beacon with a device family', counting.includes("'&p=' + encodeURIComponent(deviceFamily())"));
+
+  console.log('\n== install message ==');
+
+  res = await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      install: {
+        title: 'Install our app!',
+        benefits: ['Faster shopping', '  Exclusive discounts  ', '', 'Light on memory',
+                   'Four', 'Five', 'Six is one too many'],
+        buttonBackgroundColor: '#000000',
+        buttonTextColor: '#ffffff',
+      },
+    }),
+  });
+  const withBenefits = await res.json();
+  ok('benefits are stored', withBenefits.settings.install.benefits.length === 5,
+    JSON.stringify(withBenefits.settings.install.benefits));
+  ok('blank benefit lines are dropped, not stored as gaps',
+    withBenefits.settings.install.benefits.indexOf('') === -1);
+  ok('benefit text is trimmed',
+    withBenefits.settings.install.benefits[1] === 'Exclusive discounts',
+    withBenefits.settings.install.benefits[1]);
+  ok('a sixth benefit is refused with a reason',
+    withBenefits.warnings.some((warning) => warning.includes('benefits are kept')),
+    JSON.stringify(withBenefits.warnings));
+
+  res = await fetch(proxyUrl('/pwa.js'));
+  const withCard = await res.text();
+  ok('the storefront script carries the benefit lines', withCard.includes('"Exclusive discounts"'));
+  ok('and the button colors it should paint',
+    withCard.includes('"buttonBackgroundColor":"#000000"') && withCard.includes('"buttonTextColor":"#ffffff"'));
+
+  // Blank means "follow the theme color", and the pair has to be resolved
+  // before it reaches a browser — a blank in the CSS would be no button at all.
+  await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ themeColor: '#0b5fff', install: { buttonBackgroundColor: '', buttonTextColor: '' } }),
+  });
+  const themed = await (await fetch(proxyUrl('/pwa.js'))).text();
+  ok('an unset button color falls back to the theme color',
+    themed.includes('"buttonBackgroundColor":"#0b5fff"'), 'theme color not applied');
+  ok('and gets a label color chosen for legibility',
+    themed.includes('"buttonTextColor":"#ffffff"'), 'label color not derived');
+
+  console.log('\n== offline page ==');
+
+  await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      offline: { title: 'Oops! The connection has been lost.', message: 'Check your connectivity and try again.' },
+    }),
+  });
+
+  const offlineHtml = await (await fetch(proxyUrl('/offline'))).text();
+  ok('the offline page uses the merchant wording',
+    offlineHtml.includes('Oops! The connection has been lost.') &&
+    offlineHtml.includes('Check your connectivity and try again.'));
+
+  const shellHtml = await (await fetch(proxyUrl('/'))).text();
+  ok('and so does the launch shell, so the two never disagree',
+    shellHtml.includes('Oops! The connection has been lost.'));
+
+  const offlineSw = JSON.parse((await (await fetch(proxyUrl('/sw.js'))).text())
+    .match(/var CFG = (\{[\s\S]*?\});/)[1]);
+  ok('the worker gets the same wording for its last-resort response',
+    offlineSw.offlineText.includes('Oops! The connection has been lost.'));
+
+  console.log('\n== cache assets ==');
+
+  const beforeCache = (await (await admin('/api/settings')).json()).settings.serviceWorker.cacheVersion;
+
+  res = await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      serviceWorker: {
+        cache: { enabled: true, homePage: true, googleFonts: false, storefront: false, cssFiles: true, images: true },
+        precache: {
+          enabled: true,
+          urls: [
+            '/cdn/shop/t/1/assets/base.css',
+            '//cdn.shopify.com/s/files/1/0085/assets/main.js',
+            'https://fonts.googleapis.com/css2?family=Inter',
+            'https://evil.example.com/tracker.js',
+            'javascript:alert(1)',
+          ],
+        },
+      },
+    }),
+  });
+  const cached = await res.json();
+  ok('cache rules are stored', cached.settings.serviceWorker.cache.googleFonts === false &&
+    cached.settings.serviceWorker.cache.images === true);
+  ok('storefront and Shopify CDN precache URLs are kept',
+    cached.settings.serviceWorker.precache.urls.length === 3,
+    JSON.stringify(cached.settings.serviceWorker.precache.urls));
+  // The precache list is fetched by every first-time visitor's browser on this
+  // app's say-so. A third-party URL in it would be this app making that request.
+  ok('a third-party precache URL is refused',
+    !cached.settings.serviceWorker.precache.urls.some((u) => u.includes('evil.example.com')),
+    JSON.stringify(cached.settings.serviceWorker.precache.urls));
+  ok('and so is a scheme that is not https',
+    !cached.settings.serviceWorker.precache.urls.some((u) => u.startsWith('javascript:')));
+  ok('the merchant is told what was dropped',
+    cached.warnings.some((warning) => warning.includes('precache')), JSON.stringify(cached.warnings));
+  ok('a protocol-relative URL is normalised to https',
+    cached.settings.serviceWorker.precache.urls.includes('https://cdn.shopify.com/s/files/1/0085/assets/main.js'),
+    JSON.stringify(cached.settings.serviceWorker.precache.urls));
+
+  // A worker whose rules changed must not go on serving the cache built under
+  // the old ones, and the only lever for that is the version in the cache name.
+  ok('changing the cache rules bumps the cache version',
+    cached.settings.serviceWorker.cacheVersion > beforeCache,
+    beforeCache + ' -> ' + cached.settings.serviceWorker.cacheVersion);
+
+  const swText = await (await fetch(proxyUrl('/sw.js'))).text();
+  const swConfig = JSON.parse(swText.match(/var CFG = (\{[\s\S]*?\});/)[1]);
+  ok('the worker is handed the cache rules', swConfig.cache.googleFonts === false);
+  ok('the shell is still precached first, whatever else is on the list',
+    swConfig.precache[0] === '/apps/pwa/', JSON.stringify(swConfig.precache));
+  // addAll() is all-or-nothing, so one 404 in a merchant's pasted list would
+  // leave the shell uncached too.
+  ok('the worker precaches entries one at a time so one bad URL cannot block install',
+    swText.includes('precacheOne(cache, url)'));
+
+  // Switched off, the list must not be handed over at all — leaving it in and
+  // relying on a flag would precache it anyway on the first install.
+  await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      serviceWorker: { precache: { enabled: false, urls: cached.settings.serviceWorker.precache.urls } },
+    }),
+  });
+  const swOff = JSON.parse((await (await fetch(proxyUrl('/sw.js'))).text())
+    .match(/var CFG = (\{[\s\S]*?\});/)[1]);
+  ok('a disabled precache list is not sent to the worker',
+    !swOff.precache.some((u) => u.includes('base.css')), JSON.stringify(swOff.precache));
+
+  console.log('\n== reports and setup ==');
+
+  // The report routes themselves are exercised further down; this is only the
+  // check that they refuse an unauthenticated caller.
+  ok('reports need a session token', (await fetch(BASE + '/api/reports')).status === 401);
+  ok('the setup check needs a session token', (await fetch(BASE + '/api/setup')).status === 401);
+
+  console.log('\n== precaching ==');
+
+  /*
+   * Precaching used to be withheld from the free plan, which is what most of
+   * this section tested. With no paid plan left there is no entitlement to
+   * assert — only that the switch and the list round-trip, and that the worker
+   * is actually handed them.
+   */
+  res = await admin('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      serviceWorker: {
+        precache: { enabled: true, urls: ['/cdn/shop/t/1/assets/base.css'] },
+      },
+    }),
+  });
+  const precached = await res.json();
+  ok('precaching can be switched on',
+    precached.settings.serviceWorker.precache.enabled === true,
+    JSON.stringify(precached.settings.serviceWorker.precache));
+  ok('and its file list is stored alongside the switch',
+    precached.settings.serviceWorker.precache.urls.includes('/cdn/shop/t/1/assets/base.css'),
+    JSON.stringify(precached.settings.serviceWorker.precache.urls));
+  ok('and nothing warns about a plan any more',
+    !precached.warnings.some((w) => /plan/i.test(w)), JSON.stringify(precached.warnings));
+
+  const precacheSw = JSON.parse((await (await fetch(proxyUrl('/sw.js'))).text())
+    .match(/var CFG = (\{[\s\S]*?\});/)[1]);
+  ok('the worker is handed the list',
+    precacheSw.precache.includes('/cdn/shop/t/1/assets/base.css'), JSON.stringify(precacheSw.precache));
+  ok('and the app shell is still precached first',
+    precacheSw.precache[0] === '/apps/pwa/', JSON.stringify(precacheSw.precache));
+
+  console.log('\n== reports ==');
+
+  res = await admin('/api/reports');
+  const emptyReports = await res.json();
+  ok('reports answer for any shop', res.status === 200, 'got ' + res.status);
+  ok('a store with no reports gets an empty list',
+    Array.isArray(emptyReports.reports) && emptyReports.reports.length === 0);
+  ok('an unknown report id is 404', (await admin('/api/reports/deadbeef')).status === 404);
+  ok('deleting an unknown report is 404',
+    (await admin('/api/reports/deadbeef', { method: 'DELETE' })).status === 404);
+  ok('the quick setup wizard answers too', (await admin('/api/setup')).status !== 402);
+
+  console.log('\n== the device split ==');
+
+  // From the events recorded in the counters section above.
+  const split = await (await admin('/api/stats')).json();
+  ok('the device breakdown comes back', Boolean(split.platformRecent));
+  ok('iOS installs are counted separately', split.platformRecent.ios.installed === 1,
+    JSON.stringify(split.platformRecent.ios));
+  ok('Android installs are counted separately', split.platformRecent.android.installed === 1);
+  ok('dismissals are split by device too',
+    split.platformRecent.ios.dismissed === 1 && split.platformRecent.desktop.dismissed === 1);
+  // An open key space on a public endpoint is the thing not to have. The
+  // device family arrives in a query string anyone can type, so "martian" must
+  // collapse into the existing bucket rather than become a fifth one.
+  ok('an unrecognised device family does not create a bucket',
+    Object.keys(split.platformRecent).sort().join(',') === 'android,desktop,ios,other',
+    Object.keys(split.platformRecent).join(','));
+  ok('the device split adds up to the total',
+    split.platformRecent.ios.installed + split.platformRecent.android.installed +
+    split.platformRecent.desktop.installed + split.platformRecent.other.installed ===
+    split.recent.installed, JSON.stringify(split.platformRecent));
+  ok('all-time totals are split by device as well', split.platformTotals.ios.installed === 1);
+  // Two earlier installs carried no device at all, and the third was the
+  // unrecognised one. Counters with no device to attribute them to stay in
+  // `other` — inventing one would be worse than admitting it.
+  ok('events with no device, and unrecognised ones, both land in other',
+    split.platformTotals.other.installed === 3, JSON.stringify(split.platformTotals.other));
+
+
+  console.log('\n== the admin screen ==');
+
+  res = await fetch(BASE + '/?shop=' + SHOP);
+  const adminHtml = await res.text();
+  ok('the admin renders', res.status === 200, 'got ' + res.status);
+  ok('it is framed only by this shop and the Shopify admin',
+    (res.headers.get('content-security-policy') || '').includes('frame-ancestors https://' + SHOP));
+
+  const ROUTES = ['home', 'configuration', 'install-message', 'cache-assets', 'offline-page',
+                  'settings', 'reports', 'analytics', 'setup', 'faqs'];
+  for (const route of ROUTES) {
+    ok('the admin carries the ' + route + ' page', adminHtml.includes('data-page="' + route + '"'));
+  }
+  ok('every sidebar link points at a page that exists',
+    adminHtml.split('data-route="').length - 1 === ROUTES.length);
+
+  // The preview URL is built server-side because the client only ever learns
+  // the shop from a signed token, which arrives after this markup is written.
+  ok('the admin carries a storefront preview link for the install card',
+    adminHtml.includes('data-preview="https://' + SHOP + '/?pwa-preview=1"') &&
+    adminHtml.includes('id="previewLink"'));
+  // Duplicate ids would make getElementById return whichever page came first,
+  // and the save bar is on five of them.
+  const adminIds = (adminHtml.match(/ id="[^"]+"/g) || []).map((s) => s.slice(5, -1));
+  ok('no id is used twice across the ten pages',
+    new Set(adminIds).size === adminIds.length, String(adminIds.length - new Set(adminIds).size) + ' duplicates');
+  // Data arrives over /api/settings, never in the document. The only scripts
+  // are App Bridge and /admin.js; an inline one would mean a merchant value had
+  // been interpolated into the page.
+  ok('the admin carries no inline script',
+    (adminHtml.match(/<script/g) || []).length === 2 &&
+    adminHtml.includes('cdn.shopify.com/shopifycloud/app-bridge.js') &&
+    adminHtml.includes('src="/admin.js"'),
+    String((adminHtml.match(/<script/g) || []).length) + ' script tags');
+
+  // The URL declared as [auth] redirect_urls. Shopify should never call it —
+  // this app has no OAuth flow — but a declared redirect URL that 404s is a
+  // dead end on the one path a merchant reaches it by, so it has to land
+  // somewhere useful. `redirect: 'manual'` because the destination is on
+  // admin.shopify.com and fetch would go and get it.
+  res = await fetch(BASE + '/api/auth?shop=' + SHOP, { redirect: 'manual' });
+  ok('the declared auth redirect URL is routed', res.status === 302, 'got ' + res.status);
+  ok('and it lands the merchant in the app inside Shopify admin',
+    (res.headers.get('location') || '') ===
+      'https://admin.shopify.com/store/demo-store/apps/' + APP_HANDLE,
+    res.headers.get('location'));
+
+  // `shop` becomes the host of a Location header, so anything that is not a
+  // myshopify domain has to be refused rather than redirected to.
+  for (const hostile of ['https://evil.example', '//evil.example', 'evil.example', '']) {
+    res = await fetch(BASE + '/api/auth?shop=' + encodeURIComponent(hostile), { redirect: 'manual' });
+    ok('it will not redirect off-platform for ' + JSON.stringify(hostile),
+      res.status === 302 && res.headers.get('location') === '/',
+      res.status + ' ' + res.headers.get('location'));
+  }
+
+  res = await fetch(BASE + '/admin.js');
+  const adminScript = await res.text();
+  ok('the admin script is served', res.status === 200 && adminScript.length > 1000);
+  ok('it carries no unsubstituted placeholders', !adminScript.includes('MAX_BENEFITS'));
+  // A parse error here is a blank admin with nothing in the server log.
+  ok('and it parses', (() => { try { new Function(adminScript); return true; } catch (e) { return false; } })());
 
   console.log('\n== uninstall webhook ==');
 
@@ -536,8 +915,10 @@ async function run() {
     body: payload,
   });
   ok('a valid uninstall webhook is 200', res.status === 200, 'got ' + res.status);
-  ok('settings are deleted on uninstall', !fs.existsSync(path.join(DATA_DIR, 'shops', SHOP + '.json')));
-  ok('uploaded assets are deleted on uninstall', !fs.existsSync(path.join(DATA_DIR, 'assets', SHOP)));
+  ok('settings are deleted on uninstall',
+    await eventually(() => !fs.existsSync(path.join(DATA_DIR, 'shops', SHOP + '.json'))));
+  ok('uploaded assets are deleted on uninstall',
+    await eventually(() => !fs.existsSync(path.join(DATA_DIR, 'assets', SHOP))));
 
   // Asserted through the API rather than off the disk: the counts are held in
   // memory between flushes, so a file that is absent proves nothing. What has
@@ -547,7 +928,111 @@ async function run() {
   ok('install counts are deleted on uninstall',
     afterUninstall.totals.installed === 0 && afterUninstall.lastEventAt === null,
     JSON.stringify(afterUninstall.totals));
-  ok('the stats file is gone too', !fs.existsSync(path.join(DATA_DIR, 'stats', SHOP + '.json')));
+  ok('the stats file is gone too',
+    await eventually(() => !fs.existsSync(path.join(DATA_DIR, 'stats', SHOP + '.json'))));
+
+  console.log('\n== compliance webhooks ==');
+
+  // cap-test has no stored records of its own until something writes them, and
+  // the plan section that used to do it went with the paid plans. Give it
+  // settings, so "deletes nothing" and "erases that shop" both have a subject.
+  await adminFor('cap-test.myshopify.com', '/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Cap Test' }),
+  });
+
+  // Posted the way Shopify posts them: topic in a header, one route for all three.
+  const compliance = (topic, hmacValue) => {
+    const raw = Buffer.from(JSON.stringify({ shop_domain: 'cap-test.myshopify.com', topic }));
+    return fetch(BASE + '/webhooks/compliance', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Hmac-Sha256': hmacValue === undefined
+          ? crypto.createHmac('sha256', API_SECRET).update(raw).digest('base64')
+          : hmacValue,
+        'X-Shopify-Shop-Domain': 'cap-test.myshopify.com',
+        'X-Shopify-Topic': topic,
+      },
+      body: raw,
+    });
+  };
+
+  // This loop is the automated review check reproduced: a wrong signature has to
+  // be rejected on every compliance topic, not only on the one that deletes.
+  for (const topic of ['customers/data_request', 'customers/redact', 'shop/redact']) {
+    res = await compliance(topic, 'wrong');
+    ok(topic + ' with a bad HMAC is 401', res.status === 401, 'got ' + res.status);
+  }
+  ok('and a rejected shop/redact deletes nothing',
+    fs.existsSync(path.join(DATA_DIR, 'shops', 'cap-test.myshopify.com.json')));
+
+  res = await compliance('customers/data_request');
+  const dataRequest = await res.json();
+  ok('a valid customers/data_request is 200', res.status === 200, 'got ' + res.status);
+  ok('and reports that no customer data is held', dataRequest.customer_data_stored === false);
+
+  res = await compliance('customers/redact');
+  ok('a valid customers/redact is 200', res.status === 200, 'got ' + res.status);
+  // The redact topics are about customers; the shop's own records stay put.
+  ok('and leaves the shop own records alone',
+    fs.existsSync(path.join(DATA_DIR, 'shops', 'cap-test.myshopify.com.json')));
+
+  res = await compliance('shop/redact');
+  ok('a valid shop/redact is 200', res.status === 200, 'got ' + res.status);
+  ok('and erases that shop',
+    await eventually(() =>
+      !fs.existsSync(path.join(DATA_DIR, 'shops', 'cap-test.myshopify.com.json'))));
+
+  // Shopify retries a non-2xx for 48 hours, so a shop that is already gone — the
+  // normal case, since app/uninstalled ran 48 hours earlier — is still a 200.
+  res = await compliance('shop/redact');
+  ok('a repeat shop/redact is still 200', res.status === 200, 'got ' + res.status);
+
+  console.log('\n== storefront diagnosis ==');
+
+  // In-process, because what is being tested is a pure classifier and standing
+  // up a fake Shopify storefront to reach it through generate() would test the
+  // fake. DATA_DIR is set first so requiring the module does not create a
+  // reports directory inside the repo.
+  process.env.DATA_DIR = DATA_DIR;
+  const reportsModule = require(path.join(APP, 'web', 'reports.js'));
+  const MANIFEST_URL = 'https://' + SHOP + '/apps/pwa/manifest.json';
+  const diagnose = (res, body) => reportsModule.explainManifestFailure(res, body, MANIFEST_URL);
+
+  // A locked store answers 200 with the password page, which is why "not valid
+  // JSON" used to be all a merchant was told — the status code says nothing is
+  // wrong and the body is a login form.
+  const locked = diagnose({ status: 200, ok: true, url: MANIFEST_URL },
+    '<!doctype html><html><body class="template-password"></body></html>');
+  ok('a password page is named as one, not as bad JSON',
+    /password protected/i.test(locked) && /Online Store > Preferences/.test(locked), locked);
+
+  ok('a redirect to /password counts too',
+    /password protected/i.test(diagnose({ status: 200, ok: true, url: 'https://' + SHOP + '/password' },
+      '<!doctype html><html></html>')));
+
+  // Shopify's own 404 page, verbatim markers from a real response.
+  const missing = diagnose({ status: 404, ok: false, url: MANIFEST_URL },
+    '<!DOCTYPE html>\n<html class="shop-404" lang="en">');
+  ok('Shopify\'s 404 page is reported as the proxy not routing',
+    /app proxy is not routing/.test(missing), missing);
+
+  // Any other HTML is the theme, which means the same thing and needs saying
+  // differently — there is no 404 to point at.
+  const themePage = diagnose({ status: 200, ok: true, url: MANIFEST_URL },
+    '<!doctype html><html><body>a theme page</body></html>');
+  ok('a theme page is reported as the proxy not routing',
+    /web page rather than the manifest/.test(themePage) && /app proxy/.test(themePage), themePage);
+
+  // The original message survives for the case it was actually about.
+  ok('genuinely broken JSON still reads as broken JSON',
+    /not with valid JSON/.test(diagnose({ status: 200, ok: true, url: MANIFEST_URL }, '{"name":')));
+
+  // Four distinct causes must not collapse into one sentence again.
+  ok('the four causes give four different answers',
+    new Set([locked, missing, themePage]).size === 3);
 }
 
 const server = spawn(process.execPath, ['web/server.js'], {

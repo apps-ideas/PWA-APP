@@ -3,7 +3,7 @@
  * other Node apps in this fleet use (see apps/customer-restrictions/web).
  *
  * Real environment variables always win, so this is a no-op in production —
- * systemd injects the vars from /etc/gaapps/pwa-app.env and no .env is deployed.
+ * systemd injects the vars from /etc/gaapps/storefront-pwa-live.env and no .env is deployed.
  * It only covers running `node web/server.js` locally, where nothing else would
  * read the .env sitting at the app root.
  */

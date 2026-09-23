@@ -127,6 +127,27 @@ function defaults(shop) {
       body: 'Add the store to your home screen for a faster, full-screen experience.',
       buttonLabel: 'Install',
       dismissDays: 14,
+
+      // Up to five one-line selling points, shown above the body copy. Empty by
+      // default on purpose: a card that lists three benefits is taller than one
+      // that does not, and a merchant who has not written any should get the
+      // small card rather than a padded one.
+      benefits: [],
+
+      // Empty means "follow the theme color, with a legible label picked for
+      // it". Only a merchant who sets both is taken at their word — see
+      // installButtonColors in manifest-free server code (server.js) for how
+      // the pair is resolved.
+      buttonBackgroundColor: '',
+      buttonTextColor: '',
+    },
+
+    // The offline fallback's wording. Shown in three places — the precached
+    // offline page, the launch shell's offline state, and the worker's plain
+    // text last resort — so it is one pair of strings rather than one per page.
+    offline: {
+      title: 'You are offline',
+      message: 'Unable to detect an internet connection. Please check your connectivity and try again.',
     },
 
     // On by default. It was dormant while its only possible scope was a
@@ -134,7 +155,31 @@ function defaults(shop) {
     // directory, so the worker earns its keep by making a cold offline launch
     // land on the shell instead of a browser error. It still cannot touch the
     // catalogue — see "Service worker" in the README.
-    serviceWorker: { enabled: true, offlinePage: true, cacheVersion: 1 },
+    serviceWorker: {
+      enabled: true,
+      offlinePage: true,
+      cacheVersion: 1,
+
+      // Which runtime caching rules the worker applies. These only bite on a
+      // storefront where the worker has root scope; on a stock Shopify store it
+      // is scoped to /apps/pwa/ and sees nothing else. They are configurable
+      // anyway because the alternative is a worker whose behaviour cannot be
+      // narrowed the day it does get scope — and because a merchant debugging a
+      // stale asset needs a switch to turn, not a redeploy.
+      cache: {
+        enabled: true,
+        homePage: true,
+        googleFonts: true,
+        storefront: true,
+        cssFiles: true,
+        images: true,
+      },
+
+      // A short list of URLs fetched into the cache at install time rather than
+      // on first use. Off by default: every entry is a download every visitor
+      // pays for whether they need it or not, so this is opt-in and capped.
+      precache: { enabled: false, urls: [] },
+    },
   };
 }
 
@@ -168,7 +213,16 @@ function read(shop) {
       assets: mergeAssets(base.assets, stored.assets),
       ios: { ...base.ios, ...(stored.ios || {}) },
       install: { ...base.install, ...(stored.install || {}) },
-      serviceWorker: { ...base.serviceWorker, ...(stored.serviceWorker || {}) },
+      offline: { ...base.offline, ...(stored.offline || {}) },
+      // Two levels deep, so a file written before the cache rules existed
+      // gets the defaults rather than an undefined the worker would read as
+      // "cache nothing".
+      serviceWorker: {
+        ...base.serviceWorker,
+        ...(stored.serviceWorker || {}),
+        cache: { ...base.serviceWorker.cache, ...((stored.serviceWorker || {}).cache || {}) },
+        precache: { ...base.serviceWorker.precache, ...((stored.serviceWorker || {}).precache || {}) },
+      },
       shop,
     };
   } catch (err) {

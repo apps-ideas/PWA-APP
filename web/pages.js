@@ -50,8 +50,8 @@ function offline(settings) {
 </head>
 <body>
   <div class="box">
-    <h1>You are offline</h1>
-    <p>${escapeHtml(settings.name)} needs a connection to show this page. It will load as soon as you are back online.</p>
+    <h1>${escapeHtml(settings.offline.title)}</h1>
+    <p>${escapeHtml(settings.offline.message)}</p>
     <button type="button" onclick="location.reload()">Try again</button>
   </div>
   <script>
@@ -114,8 +114,8 @@ function shell(settings, storeUrl, sw) {
 <body>
   <div class="box" id="states">
     <div id="offline" hidden>
-      <h1>You are offline</h1>
-      <p>${escapeHtml(settings.name)} needs a connection. This will open as soon as you are back online.</p>
+      <h1>${escapeHtml(settings.offline.title)}</h1>
+      <p>${escapeHtml(settings.offline.message)}</p>
       <button type="button" onclick="location.reload()">Try again</button>
     </div>
     <div id="going">
@@ -277,6 +277,21 @@ function check(settings, proxyBase) {
     });
   }
 
+  /*
+   * An error that already knows what it means.
+   *
+   * The catch below cannot tell a storefront that is locked from one whose
+   * proxy is not routing from a genuine network failure, and guessing wrong
+   * sends the reader to change a setting that was never the problem. So
+   * whoever can tell writes the sentence, and the catch only prints it. The
+   * message is trusted HTML: build it with esc() around anything from outside.
+   */
+  function problem(message) {
+    var err = new Error(message);
+    err.explained = true;
+    return err;
+  }
+
   /* 1. Secure context. Everything else is moot without it. */
   if (window.isSecureContext) {
     report('pass', 'Secure context', 'Served over HTTPS on <code>' + esc(location.host) + '</code>.');
@@ -286,8 +301,40 @@ function check(settings, proxyBase) {
 
   /* 2. Manifest: fetched, parsed, and same-origin where it must be. */
   fetch(MANIFEST_URL, { credentials: 'omit' }).then(function (r) {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
     var type = r.headers.get('content-type') || '';
+
+    /*
+     * A password-protected storefront redirects every URL to /password.
+     *
+     * This fetch omits credentials deliberately, and so does the browser's own
+     * manifest fetch — the spec requires it. That is the whole point: having
+     * typed the password into this tab does NOT make the store installable,
+     * because the install never carries the cookie that unlocked it. So the
+     * lock is the finding, not a symptom of some other problem, and no amount
+     * of checking the proxy will move it.
+     */
+    if (r.redirected && /\\/password(?:$|[?#])/.test(r.url)) {
+      throw problem('The storefront is password protected, so this URL answers with the password ' +
+        'page instead of the manifest. A browser fetches a manifest without cookies, so entering ' +
+        'the password in this tab does not help — the store cannot be installed by anyone until ' +
+        'the password is removed under Online Store &gt; Preferences.');
+    }
+
+    if (!r.ok) {
+      throw problem('It answered <code>HTTP ' + r.status + '</code>. Check that the app proxy is ' +
+        'configured and the app is installed on this shop.');
+    }
+
+    /*
+     * HTML with a 200 means something other than this app answered — the theme,
+     * or a Shopify page. Worth separating from a parse failure: the manifest is
+     * not malformed, it was never served.
+     */
+    if (/text\\/html/i.test(type)) {
+      throw problem('It answered with a web page rather than the manifest. Check that the app proxy ' +
+        'is configured and the app is installed on this shop.');
+    }
+
     return r.json().then(function (m) { return { manifest: m, type: type }; });
   }).catch(function (err) {
     /*
@@ -300,8 +347,10 @@ function check(settings, proxyBase) {
      * misattributes its own failures is worse than one that has none.
      */
     report('fail', 'Manifest loads',
-      'Could not load <code>' + esc(CFG.manifest) + '</code>: ' + esc(err.message) +
-      '. Check that the app proxy is configured and the app is installed on this shop.');
+      'Could not load <code>' + esc(CFG.manifest) + '</code>. ' +
+      (err.explained ? err.message
+        : 'It answered with something that is not JSON (<code>' + esc(err.message) + '</code>). ' +
+          'Check that the app proxy is configured and the app is installed on this shop.'));
     return null;
   }).then(function (res) {
     if (!res) return;

@@ -112,7 +112,14 @@ web/
   images.js                       sharp: icon, maskable, splash rendering
   auth.js                         session tokens, proxy signature, webhook HMAC
   pages.js                        offline page + storefront self-test
-  admin-page.js                   embedded admin (no build step)
+  reports.js                      PageSpeed runs + installability checks, per shop
+
+  admin-page.js                   the seam server.js talks to
+  admin/                          the embedded admin (no build step)
+    styles.js                     stylesheet
+    markup.js                     form and navigation helpers, and their escaping
+    views.js                      sidebar + all ten pages, all present at once
+    client.js                     the browser script, as a string
   storefront/pwa.js               runs on every storefront page
   storefront/sw.js                service worker (dormant — see above)
 ```
@@ -135,7 +142,7 @@ The app requests **no Admin API scopes** and stores no access token.
 ### 1. Link the app
 
 ```bash
-cd apps/pwa-app
+cd apps/storefront-pwa-live
 npm install
 shopify app config link       # writes the real client_id into shopify.app.toml
 shopify app deploy            # uploads the theme app embed
@@ -149,6 +156,9 @@ shopify app deploy            # uploads the theme app embed
 | `SHOPIFY_API_SECRET` | yes | Verifies session tokens. Without it the admin is read-only. |
 | `DATA_DIR` | yes in production | Where settings and images are written. Must survive a redeploy. |
 | `PORT` | no | Defaults to 3007. |
+| `PWA_PROXY_BASE` | no | The proxy subpath, for the admin's report and setup checks only. Defaults to `/apps/pwa`. Storefront requests carry it themselves; the admin runs in an iframe with no way to ask, so it has to be told if you changed it. |
+| `PWA_APP_HANDLE` | no | The app handle, as it appears in this app's admin URL. Defaults to `handle` in `shopify.app.toml`; used to land a merchant arriving at `/api/auth` in the app inside the Shopify admin. |
+| `PAGESPEED_API_KEY` | no | A Google PageSpeed Insights key for the Reports page. Without one the app uses Google's unauthenticated quota. |
 | `PWA_VERIFY_PROXY` | no | `true` enforces Shopify's proxy signature. **Default off** — see below. |
 
 Proxy signature verification is off by default because everything under
@@ -165,29 +175,33 @@ this is on: it is what puts `<link rel="manifest">` in `<head>`.
 ### 4. Configure
 
 Apps → Storefront PWA. Set the name and short name, upload a square logo of at
-least 512×512, and set the theme and background colours. Everything else has a
+least 512×512, and set the theme and background colors. Everything else has a
 working default.
 
 Until a logo is uploaded the app generates a placeholder icon from the store's
 initial, so the store is installable from the moment the embed is on.
 
-The admin has twelve sections:
+The admin is ten pages behind a sidebar:
 
-| Section | What it sets |
+| Page | What it does |
 |---|---|
-| **Status** | Master switch. Off leaves the theme untouched and makes the manifest non-installable. |
-| **Installs** | Read-only. How many customers installed, how often they open the app, and how the install card is performing. |
-| **App identity** | Name, short name, description, language, text direction, categories. |
-| **App icon** | Upload, and the live render shown under all three platform masks. |
-| **Appearance** | Theme and background colours, display mode, orientation. |
-| **Launch behaviour** | Start URL, scope, and up to four shortcuts. |
-| **Install prompt** | Whether to show the card, its delay, position, wording and dismissal period. |
-| **iOS** | Launch screens, status bar style. |
-| **Screenshots** | A wide and a narrow image for the richer install dialogs. |
-| **Offline browsing** | The service worker toggle, and why it cannot work here. |
-| **Not seeing your changes?** | What each cache holds and when it lets go, and a button that forces the two that can be forced. |
+| **Home** | The install figures, the two theme steps the app cannot do for you, and where to go for everything else. |
+| **Configuration** | Name, short name, description, logo, theme and background colors — with a live phone preview of the home screen and the splash screen. |
+| **Install message** | The invitation card: title, up to five benefit bullets, body copy, button label and its two colors, delay, position, dismissal period. Previews as Android and as iOS, which differ because Safari has no install dialog to open. |
+| **Cache assets** | What the service worker keeps (home page, Google Fonts, storefront pages, CSS/JS, images), the precache list, and the forced-refresh block. |
+| **Offline page** | The title and message shown with no connection, previewed on a phone. |
+| **Settings** | Launch behaviour, shortcuts, language and categories, iOS, install-dialog screenshots, the service worker toggle, and the master switch. |
+| **PWA / Performance reports** | A PageSpeed run plus this app's own installability score, stored as a history of up to twenty. |
+| **Analytics** | Installs and dismissals split by iOS / Android / desktop, a daily chart, and the full funnel. |
+| **Quick setup wizard** | The installability checks, run against the live storefront, each failing one saying what to do. |
+| **FAQs** | The questions this app actually gets asked. |
 
-Two of those are worth knowing about before you use them.
+Every page saves the whole settings object, so it does not matter which Save
+button you press or where you were standing when you edited something. The four
+Enable/Disable strips are the exception: they save on click, because a strip that
+says "Enabled" while the server still thinks otherwise would be a lie.
+
+Three things are worth knowing about before you use them.
 
 **The icon previews are the real renders, not the file you picked.** The same
 icon is shown three times — square for desktop and iOS, squircle and circle for
@@ -201,6 +215,17 @@ the theme editor, and it needs the theme published. The Status switch leaves the
 theme alone and serves a manifest asking for a plain browser tab, which no
 browser offers to install — it is the one to reach for when something looks
 wrong on a live store. Existing installs keep working either way.
+
+**The PWA score is ours, not Google's.** Lighthouse dropped its PWA category in
+2024, so there is nothing left to defer to. The score on the Reports page and in
+the Quick setup wizard is the share of thirteen installability conditions your
+live storefront currently meets — the manifest reachable through the proxy, the
+192 and 512 icons Chrome insists on, a maskable icon, the embed actually on the
+page. Both pages list them one by one with what to do about each failure. The
+four Lighthouse categories beside it (Performance, Accessibility, Best Practices,
+SEO) are real PageSpeed numbers; if PageSpeed cannot reach the store — a password
+-protected store, or an exhausted quota — the report is still stored with the
+installability half filled in and the reason recorded.
 
 ### 5. Verify on the storefront
 
@@ -231,7 +256,7 @@ manifest and a second copy of those values in the theme editor would drift from
 it within a week. The **theme app embed** only decides whether and where the PWA
 loads, which is a theme decision.
 
-The one deliberate exception is the theme colour override in the block:
+The one deliberate exception is the theme color override in the block:
 `<meta name="theme-color">` has to be in the HTML at first paint to tint the
 address bar before any script runs. Left blank — the default — the runtime
 injects the admin's value, and it never overwrites a `theme-color` the theme
@@ -260,21 +285,36 @@ chrome affordance from customers who already installed:
 `window.ShopifyPWA` exposes `install()`, `dismiss()`, `platform`, `standalone`,
 `canPrompt` and the service worker's real scope.
 
----
-
 ## Install figures
 
-The admin's **Installs** section answers the question the app exists to answer:
-is anyone actually installing this. Four counters, sent from `storefront/pwa.js`
-as a `navigator.sendBeacon` POST to `/apps/pwa/event?type=<event>`, held in
-memory and flushed to `DATA_DIR/stats/<shop>.json` every five seconds.
+The **Home** and **Analytics** pages answer the question the app exists to
+answer: is anyone actually installing this. Five counters, sent from
+`storefront/pwa.js` as a `navigator.sendBeacon` POST to
+`/apps/pwa/event?type=<event>&p=<device>`, held in memory and flushed to
+`DATA_DIR/stats/<shop>.json` every five seconds.
 
 | Event | Fired when | Deduplicated |
 |---|---|---|
 | `shown` | The install card appears | Once per tab session |
 | `clicked` | The visitor asks to install, by the card's button or a theme's `data-pwa-install` element | Once per tab session |
+| `dismissed` | The visitor says no — "Not now", "Got it", or a declined native dialog | Once per tab session |
 | `installed` | `appinstalled` fires, or `userChoice` resolves as accepted | Once per browser, forever |
 | `launch` | A page loads in standalone display mode | Once per browser per UTC day |
+
+The card's corner **×** is deliberately not a dismissal. It hides the card for
+this screen and lets it return on the next page view; the two labelled buttons
+mean "stop asking" and are what set the dismissal period. Counting the × would
+make the dismissal figure a measure of how many pages someone browsed.
+
+Each event carries a device family — `ios`, `android`, `desktop`, or `other` —
+so the Analytics page can split installs and dismissals the way a merchant
+actually reads them. The family is decided by the storefront script, which had to
+work it out anyway to choose which install directions to show, rather than being
+re-derived from a User-Agent on the server where the two could disagree. Anything
+unrecognised collapses into `other`: the value arrives in a query string on a
+public endpoint, and an open key space there would become an open-ended set of
+keys in a file kept for six months. Counters recorded before the split existed
+stay in `other` too — there is no honest way to attribute them after the fact.
 
 Three things about these numbers are worth stating plainly, and the admin states
 them too rather than presenting a count that looks more exact than it is:
@@ -293,7 +333,8 @@ them too rather than presenting a count that looks more exact than it is:
   cost more than a loop, and that is as far as a counter is worth defending.
 
 Nothing that identifies a person is sent or stored — the beacon carries an event
-name and nothing else, and the file holds four integers per day.
+name and a device family and nothing else, and the file holds a handful of
+integers per day.
 
 Days are bucketed **midnight to midnight UTC**, not in the shop's timezone: the
 server does not know what timezone the shop trades in, and a bucket boundary
@@ -307,9 +348,41 @@ that moves with the reader is worse than one that is stated. Buckets are kept fo
 | `manifest.json` | `max-age=300` | Short enough that a renamed app appears within a coffee break. |
 | `pwa.js` | `max-age=600` | Config is baked in, so it must not be pinned for long. |
 | `sw.js` | `no-cache` | A long-cached service worker is a fix you cannot ship. |
-| icons, splash, screenshots | `max-age=31536000, immutable` | Content-addressed by `?v=<rev>`. The rev hashes the upload *and* the colours and initial that the maskable, splash and placeholder renders are drawn from, so changing any of them changes every URL. |
+| icons, splash, screenshots | `max-age=31536000, immutable` | Content-addressed by `?v=<rev>`. The rev hashes the upload *and* the colors and initial that the maskable, splash and placeholder renders are drawn from, so changing any of them changes every URL. |
 | `/offline`, `/check`, `/health` | `no-store` | A CDN copy of "you are offline" served to an online visitor is memorable. |
 | `/event` | `no-store`, POST only | A cacheable GET would have the edge answering the second install of the day and never reaching the counter. |
+
+### What the worker itself caches
+
+The **Cache assets** page has five switches and a precache list, and they only
+bite where the worker has scope — which on a stock Shopify storefront is
+`/apps/pwa/` and nothing else, for the reason at the top of this file. They ship
+configurable anyway: the day a store ends up behind a reverse proxy that can
+serve `/sw.js` from the root, narrowing the rules is a switch rather than a
+redeploy, and a merchant chasing a stale asset needs something to turn.
+
+| Switch | Covers |
+|---|---|
+| Home page | Navigations to `/` |
+| Storefront pages | Every other storefront navigation |
+| CSS and JavaScript | `style` and `script` destinations, same-origin or `cdn.shopify.com` |
+| Images | `image` destinations |
+| Google Fonts | `fonts.googleapis.com` and `fonts.gstatic.com`, which are one decision because caching the stylesheet without the font files is caching neither |
+
+Carts, checkouts, accounts, search and every Shopify internal path are excluded
+whatever is switched on.
+
+**Precaching** entries are limited to paths on the storefront and files on
+`cdn.shopify.com` or Google Fonts: every entry is a request this app makes every
+first-time visitor's browser perform, so a third-party URL there would be the
+app fetching someone else's server from a customer's browser.
+Entries are fetched one at a time rather than through `cache.addAll`, which is
+all-or-nothing: one 404 in a pasted list would otherwise leave the app shell
+uncached too.
+
+Changing any of these, or the offline wording, bumps the service worker's cache
+version, so a returning visitor's next page view discards the caches built under
+the old rules.
 
 ## Forcing a refresh
 
@@ -344,7 +417,7 @@ Boots the real server on a scratch `DATA_DIR` and makes 135 assertions across
 both surfaces: manifest shape and the same-origin `start_url` rule, icon and
 splash rendering, the size allow-lists, session-token rejection (no token, wrong
 secret, expired, wrong `aud`), settings coercion, the master switch, icon upload
-limits, cache-busting on a colour change and on a forced refresh, the install
+limits, cache-busting on a color change and on a forced refresh, the install
 counters and their event allow-list, and the uninstall webhook's HMAC and data
 deletion.
 
@@ -358,22 +431,38 @@ both would have reached a storefront silently:
   stayed a bare identifier. The result was valid JavaScript that threw
   `ReferenceError` on the first line of every storefront page. `loadTemplate` in
   `web/server.js` now refuses to boot if the token is not unique.
-- **A colour change must move every icon URL.** Derived renders are served
+- **A color change must move every icon URL.** Derived renders are served
   `immutable` for a year but were keyed only on the uploaded file's hash, so
-  changing the background colour — which pads the maskable icons and paints the
+  changing the background color — which pads the maskable icons and paints the
   splash screens — would have served stale renders forever.
 
 ## Data
 
-`DATA_DIR` holds `shops/<shop>.json`, `assets/<shop>/` and `stats/<shop>.json`.
-Uploads are re-encoded to PNG through sharp, which also discards EXIF and any
-trailing payload. Derived renders are cached beside the source, keyed by content
-hash.
+`DATA_DIR` holds `shops/<shop>.json`, `assets/<shop>/`, `stats/<shop>.json` and
+`reports/<shop>.json`. Uploads are re-encoded to PNG through sharp, which also
+discards EXIF and any trailing payload. Derived renders are cached beside the
+source, keyed by content hash. Report history is capped at twenty runs per shop.
 
-The `app/uninstalled` webhook deletes all three, and the stats cache entry goes
+The `app/uninstalled` webhook deletes all four, and the stats cache entry goes
 with the file — a surviving entry would be flushed straight back onto disk on
 the next timer tick. Leaving a merchant's logo on disk after they remove the app
 is not something to be casual about.
+
+### Compliance webhooks
+
+`/webhooks/compliance` answers all three mandatory privacy topics, behind the
+same HMAC gate as `app/uninstalled`:
+
+| Topic | What happens |
+| --- | --- |
+| `customers/data_request` | 200 with `customer_data_stored: false`. Install events are counted, never attributed — `stats.js` increments a per-day, per-platform integer and writes no customer id, email, IP, order or address — so there is nothing to look up. |
+| `customers/redact` | 200, nothing to erase, for the same reason. |
+| `shop/redact` | Erases the shop outright, the same four files as an uninstall. Sent ~48 hours after uninstall, so it usually finds the work already done; it is the backstop for an `app/uninstalled` that was missed. |
+
+Every branch answers 200 within one tick. Shopify retries a non-2xx for 48 hours
+and treats persistent failure as a compliance breach, so "I hold no such record"
+has to be a 200, not a 404. A bad signature is 401 before any handler runs —
+that rejection is exactly what the automated review check probes.
 
 The counters assume a single process. The app listens on one port on 127.0.0.1
 and is not clustered; two processes sharing a `DATA_DIR` would each hold their

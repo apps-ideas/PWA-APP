@@ -566,10 +566,10 @@
       </p>
     </div>
     <dl class="facts">
-      <div><dt>Host</dt><dd>pwa.gaapps.cloud</dd></div>
+      <div><dt>Host</dt><dd>pwa.proecomtech.com</dd></div>
       <div><dt>Port</dt><dd>3007 · 127.0.0.1 only</dd></div>
-      <div><dt>Code</dt><dd>/opt/gaapps/pwa-app</dd></div>
-      <div><dt>State</dt><dd>/var/lib/gaapps/pwa-app</dd></div>
+      <div><dt>Code</dt><dd>/opt/gaapps/storefront-pwa-live</dd></div>
+      <div><dt>State</dt><dd>/var/lib/gaapps/storefront-pwa-live</dd></div>
       <div><dt>Build</dt><dd>none</dd></div>
     </dl>
   </header>
@@ -620,10 +620,10 @@
 
       <div class="diagram">
 <pre>browser / Shopify ──▶ nginx :443 (TLS)  ──▶ node :3007 <span class="dim">(127.0.0.1 only)</span>
-                      pwa.gaapps.cloud       /opt/gaapps/pwa-app
+                      pwa.proecomtech.com       /opt/gaapps/storefront-pwa-live
                                                      │
                                                      ▼
-                                          /var/lib/gaapps/pwa-app
+                                          /var/lib/gaapps/storefront-pwa-live
                                           <span class="dim">shops/*.json + assets/&lt;shop&gt;/</span></pre>
       </div>
 
@@ -702,7 +702,7 @@
         control for the domain, and the Shopify CLI on your workstation
         (<code>npm i -g @shopify/cli</code>).</p>
 
-      <p class="footnote">Replace <code>pwa.gaapps.cloud</code> throughout if you
+      <p class="footnote">Replace <code>pwa.proecomtech.com</code> throughout if you
         are hosting elsewhere — it appears in <code>shopify.app.toml</code>, the
         nginx vhost and the Partner dashboard, and all three must agree.</p>
     </section>
@@ -725,12 +725,12 @@
       <div class="cmd">
         <div class="cmd-head"><span>prompt · paste into your agent</span><button class="copy">Copy</button></div>
 <pre><code>Deploy the Storefront PWA Shopify app to my Hostinger VPS by following
-apps/pwa-app/DEPLOY.md in this repo. Work through steps 3 to 11 only.
+apps/storefront-pwa-live/DEPLOY.md in this repo. Work through steps 3 to 11 only.
 
   VPS        <span class="ph">&lt;VPS_IP&gt;</span>, Ubuntu 24.04, root over ssh
-  Hostname   pwa.gaapps.cloud
+  Hostname   pwa.proecomtech.com
   Client ID  <span class="ph">&lt;CLIENT_ID&gt;</span>
-  Repo       git@github.com:apps-ideas/PWA-APP.git
+  Repo       git@github.com:apps-ideas/storefront-pwa-live.git
 
 How I want this run:
 
@@ -738,9 +738,9 @@ How I want this run:
   output. If a Check fails, stop and tell me — do not work around it and
   do not continue to the next step.
 - I have already done steps 1 and 2 (token revoked, DNS pointed). Still
-  confirm DNS with `dig +short pwa.gaapps.cloud` before step 10.
+  confirm DNS with `dig +short pwa.proecomtech.com` before step 10.
 - Ask me for SHOPIFY_API_SECRET when you reach step 6. Do not echo it back
-  to me, do not write it anywhere but /etc/gaapps/pwa-app.env, and do not
+  to me, do not write it anywhere but /etc/gaapps/storefront-pwa-live.env, and do not
   put it in a command line that lands in shell history.
 
 Stop and ask me first before:
@@ -748,15 +748,15 @@ Stop and ask me first before:
 - running certbot — Let's Encrypt rate-limits failures at 5 per hostname
   per hour, so a blind retry can lock the host out for the rest of the hour;
 - any command that writes to or deletes anything under
-  /var/lib/gaapps/pwa-app — that is live merchant data, not build output;
-- overwriting /etc/gaapps/pwa-app.env if it already exists.
+  /var/lib/gaapps/storefront-pwa-live — that is live merchant data, not build output;
+- overwriting /etc/gaapps/storefront-pwa-live.env if it already exists.
 
 Never do these, even if something seems to call for it:
 
 - setting PWA_VERIFY_PROXY=true (it can silently un-install the PWA for
   every visitor);
 - adding an X-Frame-Options header anywhere in the nginx config;
-- pointing DATA_DIR anywhere but /var/lib/gaapps/pwa-app.
+- pointing DATA_DIR anywhere but /var/lib/gaapps/storefront-pwa-live.
 
 When step 11 is done, stop. Steps 12 and 13 are mine — tell me exactly what
 to do in the Partner dashboard and the theme editor.</code></pre>
@@ -789,7 +789,7 @@ to do in the Partner dashboard and the theme editor.</code></pre>
       <div class="note danger">
         <span class="tag">Do this before anything reaches the server</span>
         <p>The <code>origin</code> remote reads
-          <code>https://ghp_…@github.com/apps-ideas/PWA-APP.git</code>.
+          <code>https://ghp_…@github.com/apps-ideas/storefront-pwa-live.git</code>.
           <code>git remote -v</code> prints it in full to anyone with shell
           access. Revoke it at GitHub → <strong>Settings → Developer settings →
           Personal access tokens</strong>, then repoint the checkout.</p>
@@ -797,7 +797,7 @@ to do in the Partner dashboard and the theme editor.</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · your machine</span><button class="copy">Copy</button></div>
-<pre><code>git remote set-url origin git@github.com:apps-ideas/PWA-APP.git</code></pre>
+<pre><code>git remote set-url origin git@github.com:apps-ideas/storefront-pwa-live.git</code></pre>
       </div>
 
       <p>Use a <strong>deploy key</strong> for the server in step 5, not a PAT — a
@@ -839,7 +839,7 @@ to do in the Partner dashboard and the theme editor.</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · anywhere</span><button class="copy">Copy</button></div>
-<pre><code>dig +short pwa.gaapps.cloud</code></pre>
+<pre><code>dig +short pwa.proecomtech.com</code></pre>
       </div>
 
       <div class="check">
@@ -914,13 +914,13 @@ ufw allow OpenSSH &amp;&amp; ufw allow 'Nginx Full' &amp;&amp; ufw --force enabl
 
 mkdir -p /opt/gaapps               # code — replaced on every deploy
 mkdir -p /etc/gaapps               # secrets, root-owned
-mkdir -p /var/lib/gaapps/pwa-app   # state — must survive a deploy
+mkdir -p /var/lib/gaapps/storefront-pwa-live   # state — must survive a deploy
 
 chown -R gaapps:gaapps /opt/gaapps /var/lib/gaapps
 chmod 750 /etc/gaapps</code></pre>
       </div>
 
-      <p><code>/var/lib/gaapps/pwa-app</code> holds every merchant's settings,
+      <p><code>/var/lib/gaapps/storefront-pwa-live</code> holds every merchant's settings,
         their uploaded logo and screenshots, and the icons and splash screens
         rendered from them. Put it under <code>/opt</code> and the next deploy
         wipes it.</p>
@@ -940,7 +940,7 @@ echo '/swapfile none swap sw 0 0' &gt;&gt; /etc/fstab</code></pre>
 
       <div class="check">
         <span class="lab">Check</span>
-        <p><code>ls -ld /var/lib/gaapps/pwa-app</code> shows
+        <p><code>ls -ld /var/lib/gaapps/storefront-pwa-live</code> shows
           <code>gaapps gaapps</code>.</p>
       </div>
 
@@ -962,7 +962,7 @@ echo '/swapfile none swap sw 0 0' &gt;&gt; /etc/fstab</code></pre>
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
 <pre><code>mkdir -p /opt/gaapps/.ssh &amp;&amp; chown gaapps:gaapps /opt/gaapps/.ssh
-sudo -u gaapps ssh-keygen -t ed25519 -f /opt/gaapps/.ssh/id_ed25519 -N "" -C "pwa-app-vps"
+sudo -u gaapps ssh-keygen -t ed25519 -f /opt/gaapps/.ssh/id_ed25519 -N "" -C "storefront-pwa-live-vps"
 cat /opt/gaapps/.ssh/id_ed25519.pub</code></pre>
       </div>
 
@@ -972,7 +972,7 @@ cat /opt/gaapps/.ssh/id_ed25519.pub</code></pre>
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
 <pre><code>cd /opt/gaapps
-sudo -u gaapps git clone git@github.com:apps-ideas/PWA-APP.git pwa-app</code></pre>
+sudo -u gaapps git clone git@github.com:apps-ideas/storefront-pwa-live.git storefront-pwa-live</code></pre>
       </div>
 
       <h3>No repo access? Copy the folder instead</h3>
@@ -980,13 +980,13 @@ sudo -u gaapps git clone git@github.com:apps-ideas/PWA-APP.git pwa-app</code></p
       <div class="cmd">
         <div class="cmd-head"><span>powershell · your machine</span><button class="copy">Copy</button></div>
 <pre><code># from d:\app\01-hostinger-apps\apps
-scp -r pwa-app root@&lt;VPS_IP&gt;:/opt/gaapps/</code></pre>
+scp -r storefront-pwa-live root@&lt;VPS_IP&gt;:/opt/gaapps/</code></pre>
       </div>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
-<pre><code>rm -rf /opt/gaapps/pwa-app/node_modules /opt/gaapps/pwa-app/.env
-chown -R gaapps:gaapps /opt/gaapps/pwa-app</code></pre>
+<pre><code>rm -rf /opt/gaapps/storefront-pwa-live/node_modules /opt/gaapps/storefront-pwa-live/.env
+chown -R gaapps:gaapps /opt/gaapps/storefront-pwa-live</code></pre>
       </div>
 
       <p>Deleting the local <code>.env</code> matters. It is gitignored, so a clone
@@ -997,8 +997,8 @@ chown -R gaapps:gaapps /opt/gaapps/pwa-app</code></pre>
 
       <div class="check">
         <span class="lab">Check</span>
-        <p><code>ls /opt/gaapps/pwa-app/web/server.js</code> exists.</p>
-        <p>The directory name must be exactly <code>pwa-app</code> — the systemd
+        <p><code>ls /opt/gaapps/storefront-pwa-live/web/server.js</code> exists.</p>
+        <p>The directory name must be exactly <code>storefront-pwa-live</code> — the systemd
           unit and the nginx vhost reference it literally.</p>
       </div>
 
@@ -1019,18 +1019,18 @@ chown -R gaapps:gaapps /opt/gaapps/pwa-app</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
-<pre><code>cat &gt; /etc/gaapps/pwa-app.env &lt;&lt;'EOF'
+<pre><code>cat &gt; /etc/gaapps/storefront-pwa-live.env &lt;&lt;'EOF'
 NODE_ENV=production
 PORT=3007
 SHOPIFY_API_KEY=&lt;CLIENT_ID&gt;
 SHOPIFY_API_SECRET=&lt;CLIENT_SECRET&gt;
-DATA_DIR=/var/lib/gaapps/pwa-app
+DATA_DIR=/var/lib/gaapps/storefront-pwa-live
 PWA_VERIFY_PROXY=false
 EOF
 
-nano /etc/gaapps/pwa-app.env          # replace the two placeholders
-chown root:gaapps /etc/gaapps/pwa-app.env
-chmod 640 /etc/gaapps/pwa-app.env</code></pre>
+nano /etc/gaapps/storefront-pwa-live.env          # replace the two placeholders
+chown root:gaapps /etc/gaapps/storefront-pwa-live.env
+chmod 640 /etc/gaapps/storefront-pwa-live.env</code></pre>
       </div>
 
       <div class="tablewrap">
@@ -1066,7 +1066,7 @@ chmod 640 /etc/gaapps/pwa-app.env</code></pre>
 
       <div class="check">
         <span class="lab">Check</span>
-        <p><code>grep -c '&lt;CLIENT' /etc/gaapps/pwa-app.env</code> returns
+        <p><code>grep -c '&lt;CLIENT' /etc/gaapps/storefront-pwa-live.env</code> returns
           <code>0</code> — both placeholders are gone.</p>
       </div>
 
@@ -1088,11 +1088,11 @@ chmod 640 /etc/gaapps/pwa-app.env</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
-<pre><code>cd /opt/gaapps/pwa-app
+<pre><code>cd /opt/gaapps/storefront-pwa-live
 sudo -u gaapps npm install
 
-install -d -o gaapps -g gaapps /var/lib/gaapps/pwa-app
-sudo -u gaapps env DATA_DIR=/var/lib/gaapps/pwa-app \
+install -d -o gaapps -g gaapps /var/lib/gaapps/storefront-pwa-live
+sudo -u gaapps env DATA_DIR=/var/lib/gaapps/storefront-pwa-live \
   node -e "require('./web/settings.js'); console.log('data dir writable')"</code></pre>
       </div>
 
@@ -1110,7 +1110,7 @@ sudo -u gaapps env DATA_DIR=/var/lib/gaapps/pwa-app \
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
 <pre><code>apt install -y build-essential libvips-dev
-cd /opt/gaapps/pwa-app &amp;&amp; sudo -u gaapps npm install --build-from-source sharp</code></pre>
+cd /opt/gaapps/storefront-pwa-live &amp;&amp; sudo -u gaapps npm install --build-from-source sharp</code></pre>
       </div>
 
       <div class="note warn">
@@ -1125,7 +1125,7 @@ cd /opt/gaapps/pwa-app &amp;&amp; sudo -u gaapps npm install --build-from-source
       <div class="check">
         <span class="lab">Check</span>
         <p>It prints <code>data dir writable</code>, and
-          <code>ls /var/lib/gaapps/pwa-app</code> shows <code>shops</code> and
+          <code>ls /var/lib/gaapps/storefront-pwa-live</code> shows <code>shops</code> and
           <code>assets</code>.</p>
       </div>
 
@@ -1146,10 +1146,10 @@ cd /opt/gaapps/pwa-app &amp;&amp; sudo -u gaapps npm install --build-from-source
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
-<pre><code>cat &gt; /etc/systemd/system/pwa-app.service &lt;&lt;'EOF'
+<pre><code>cat &gt; /etc/systemd/system/storefront-pwa-live.service &lt;&lt;'EOF'
 [Unit]
 Description=Storefront PWA (Shopify embedded app)
-Documentation=https://pwa.gaapps.cloud/healthz
+Documentation=https://pwa.proecomtech.com/healthz
 After=network-online.target
 Wants=network-online.target
 
@@ -1160,15 +1160,15 @@ Group=gaapps
 
 # No /web suffix: server.js resolves everything from __dirname, and require()
 # needs node_modules at the repo root. Do NOT run this from inside web/.
-WorkingDirectory=/opt/gaapps/pwa-app
-EnvironmentFile=/etc/gaapps/pwa-app.env
+WorkingDirectory=/opt/gaapps/storefront-pwa-live
+EnvironmentFile=/etc/gaapps/storefront-pwa-live.env
 ExecStart=/usr/bin/node web/server.js
 
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=pwa-app
+SyslogIdentifier=storefront-pwa-live
 
 # ProtectSystem=strict makes /opt read-only, which is what we want: everything
 # this app writes lives under DATA_DIR in /var/lib so it survives a redeploy.
@@ -1176,7 +1176,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/gaapps/pwa-app
+ReadWritePaths=/var/lib/gaapps/storefront-pwa-live
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -1188,7 +1188,7 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now pwa-app
+systemctl enable --now storefront-pwa-live
 curl -s localhost:3007/healthz</code></pre>
       </div>
 
@@ -1196,12 +1196,12 @@ curl -s localhost:3007/healthz</code></pre>
         <span class="lab">Check</span>
         <p>The JSON shows <code>"apiKey":true</code>,
           <code>"apiSecret":true</code> and
-          <code>"dataDir":"/var/lib/gaapps/pwa-app"</code>.</p>
+          <code>"dataDir":"/var/lib/gaapps/storefront-pwa-live"</code>.</p>
         <p>A <code>false</code> on either key means step 6 did not take effect —
-          <code>systemctl restart pwa-app</code>. A <em>reload</em> will not do
+          <code>systemctl restart storefront-pwa-live</code>. A <em>reload</em> will not do
           it: systemd re-reads <code>EnvironmentFile</code> only on a restart.
           <code>EROFS</code> or <code>EACCES</code> in
-          <code>journalctl -u pwa-app</code> means a write is landing outside
+          <code>journalctl -u storefront-pwa-live</code> means a write is landing outside
           <code>ReadWritePaths</code>.</p>
       </div>
 
@@ -1222,14 +1222,14 @@ curl -s localhost:3007/healthz</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
-<pre><code>cat &gt; /etc/nginx/sites-available/pwa.gaapps.cloud.conf &lt;&lt;'EOF'
+<pre><code>cat &gt; /etc/nginx/sites-available/pwa.proecomtech.com.conf &lt;&lt;'EOF'
 server {
     listen 80;
     listen [::]:80;
-    server_name pwa.gaapps.cloud;
+    server_name pwa.proecomtech.com;
 
-    access_log /var/log/nginx/pwa.gaapps.cloud.access.log;
-    error_log  /var/log/nginx/pwa.gaapps.cloud.error.log;
+    access_log /var/log/nginx/pwa.proecomtech.com.access.log;
+    error_log  /var/log/nginx/pwa.proecomtech.com.error.log;
 
     # Merchants upload a logo and up to two screenshots. The app caps the body
     # at 8 MB in express.raw; keep the two in step or nginx rejects the upload
@@ -1258,7 +1258,7 @@ server {
 }
 EOF
 
-ln -sf /etc/nginx/sites-available/pwa.gaapps.cloud.conf /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/pwa.proecomtech.com.conf /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
 # `ln -sf` creates dangling links without complaining and nginx skips them
@@ -1280,7 +1280,7 @@ nginx -t &amp;&amp; systemctl reload nginx</code></pre>
       <div class="check">
         <span class="lab">Check</span>
         <p>The loop prints nothing, and
-          <code>curl -sI http://pwa.gaapps.cloud/healthz</code> returns 200.</p>
+          <code>curl -sI http://pwa.proecomtech.com/healthz</code> returns 200.</p>
         <p><code>nginx -t</code> passing is <strong>not</strong> sufficient
           evidence on its own — see above.</p>
       </div>
@@ -1303,7 +1303,7 @@ nginx -t &amp;&amp; systemctl reload nginx</code></pre>
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
 <pre><code>apt install -y certbot python3-certbot-nginx
-certbot --nginx --agree-tos -m you@example.com --redirect -d pwa.gaapps.cloud
+certbot --nginx --agree-tos -m you@example.com --redirect -d pwa.proecomtech.com
 
 systemctl status certbot.timer     # renewal is automatic</code></pre>
       </div>
@@ -1314,7 +1314,7 @@ systemctl status certbot.timer     # renewal is automatic</code></pre>
 
       <div class="check">
         <span class="lab">Check</span>
-        <p><code>curl -s https://pwa.gaapps.cloud/healthz</code> returns the same
+        <p><code>curl -s https://pwa.proecomtech.com/healthz</code> returns the same
           JSON as step 8.</p>
       </div>
 
@@ -1345,7 +1345,7 @@ systemctl status certbot.timer     # renewal is automatic</code></pre>
 
       <div class="check">
         <span class="lab">Check</span>
-        <p><code>curl -sI https://pwa.gaapps.cloud/ | grep -i x-frame</code>
+        <p><code>curl -sI https://pwa.proecomtech.com/ | grep -i x-frame</code>
           returns nothing.</p>
       </div>
 
@@ -1368,13 +1368,13 @@ systemctl status certbot.timer     # renewal is automatic</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>toml · shopify.app.toml</span><button class="copy">Copy</button></div>
-<pre><code>application_url = "https://pwa.gaapps.cloud"
+<pre><code>application_url = "https://pwa.proecomtech.com"
 
 [auth]
-redirect_urls = [ "https://pwa.gaapps.cloud/api/auth" ]
+redirect_urls = [ "https://pwa.proecomtech.com/api/auth" ]
 
 [app_proxy]
-url = "https://pwa.gaapps.cloud/pwa/proxy"
+url = "https://pwa.proecomtech.com/pwa/proxy"
 subpath = "pwa"
 prefix = "apps"</code></pre>
       </div>
@@ -1384,13 +1384,13 @@ prefix = "apps"</code></pre>
         <p>Shopify forwards only the path <em>after</em> the subpath, and the
           backend mounts its storefront router at <code>/pwa/proxy</code> — so
           <code>/apps/pwa/manifest.json</code> on the storefront must resolve to
-          <code>https://pwa.gaapps.cloud/pwa/proxy/manifest.json</code>. Drop the
+          <code>https://pwa.proecomtech.com/pwa/proxy/manifest.json</code>. Drop the
           suffix and every storefront page links to a 404 manifest, which Chrome
           reports as a broken site rather than simply an uninstallable one.</p>
       </div>
 
       <div class="cmd">
-        <div class="cmd-head"><span>bash · your machine, in apps/pwa-app</span><button class="copy">Copy</button></div>
+        <div class="cmd-head"><span>bash · your machine, in apps/storefront-pwa-live</span><button class="copy">Copy</button></div>
 <pre><code>npm install
 shopify app config push
 shopify app deploy           # uploads the theme app embed extension</code></pre>
@@ -1479,7 +1479,7 @@ curl -sI https://&lt;your-store&gt;/apps/pwa/icon-512.png</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
-<pre><code>tar czf /root/pwa-app-$(date +%F).tar.gz -C /var/lib/gaapps pwa-app</code></pre>
+<pre><code>tar czf /root/storefront-pwa-live-$(date +%F).tar.gz -C /var/lib/gaapps storefront-pwa-live</code></pre>
       </div>
 
       <p>Worth a nightly cron and an off-box copy. Hostinger's snapshot feature
@@ -1655,17 +1655,17 @@ curl -sI https://&lt;your-store&gt;/apps/pwa/icon-512.png</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
-<pre><code>cd /opt/gaapps/pwa-app
+<pre><code>cd /opt/gaapps/storefront-pwa-live
 sudo -u gaapps git pull
 sudo -u gaapps npm install     # or npm ci, once a lockfile is committed
-systemctl restart pwa-app
+systemctl restart storefront-pwa-live
 
 curl -s localhost:3007/healthz
-journalctl -u pwa-app -n 30 --no-pager</code></pre>
+journalctl -u storefront-pwa-live -n 30 --no-pager</code></pre>
       </div>
 
       <ul>
-        <li>After editing <code>/etc/gaapps/pwa-app.env</code>:
+        <li>After editing <code>/etc/gaapps/storefront-pwa-live.env</code>:
           <code>systemctl restart</code>, not <code>reload</code> — systemd
           re-reads <code>EnvironmentFile</code> only on a restart.</li>
         <li>After changing the theme extension in <code>extensions/</code>:
@@ -1693,7 +1693,7 @@ journalctl -u pwa-app -n 30 --no-pager</code></pre>
           <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
           <tbody>
             <tr><td>Blank panel in Shopify admin</td><td><code>SHOPIFY_API_KEY</code> unset, or an <code>X-Frame-Options</code> header at the nginx layer</td><td>Check <code>/healthz</code> shows <code>apiKey: true</code>; remove the header (step 11)</td></tr>
-            <tr><td>Admin loads, every save fails</td><td><code>SHOPIFY_API_SECRET</code> unset — session tokens cannot be verified</td><td>Set it, <code>systemctl restart pwa-app</code></td></tr>
+            <tr><td>Admin loads, every save fails</td><td><code>SHOPIFY_API_SECRET</code> unset — session tokens cannot be verified</td><td>Set it, <code>systemctl restart storefront-pwa-live</code></td></tr>
             <tr><td><code>/apps/pwa/*</code> 404s but <code>/healthz</code> works</td><td><code>[app_proxy] url</code> missing its <code>/pwa/proxy</code> suffix</td><td>Step 12</td></tr>
             <tr><td>Nothing at all on the storefront</td><td>The theme app embed is not enabled</td><td>Theme editor → App embeds</td></tr>
             <tr><td>Manifest loads, store still not installable</td><td><code>start_url</code> not same-origin, or a declared icon 404s</td><td>Run <code>/apps/pwa/check</code> — it names the failing check</td></tr>
@@ -1702,7 +1702,7 @@ journalctl -u pwa-app -n 30 --no-pager</code></pre>
             <tr><td>Logo upload fails with an HTML parse error</td><td>nginx <code>client_max_body_size</code> below the app's 8 MB cap</td><td>Keep it at <code>9m</code> (step 9)</td></tr>
             <tr><td>Splash images time out on a cold store</td><td><code>sharp</code> rendering 2048×2732 exceeded the proxy timeout</td><td><code>proxy_read_timeout 60s</code>; on 1 GB plans confirm swap exists (step 4)</td></tr>
             <tr><td><code>npm install</code> refuses outright</td><td>Node older than 20, and <code>.npmrc</code> sets <code>engine-strict=true</code></td><td>Install Node 22 (step 3)</td></tr>
-            <tr><td>certbot: "could not find a matching server block"</td><td>Dangling <code>sites-enabled</code> symlink, or DNS not yet resolving</td><td>Run the symlink check in step 9; <code>dig +short pwa.gaapps.cloud</code></td></tr>
+            <tr><td>certbot: "could not find a matching server block"</td><td>Dangling <code>sites-enabled</code> symlink, or DNS not yet resolving</td><td>Run the symlink check in step 9; <code>dig +short pwa.proecomtech.com</code></td></tr>
             <tr><td>PWA silently un-installs for every visitor</td><td><code>PWA_VERIFY_PROXY=true</code> and the signature is failing</td><td>Set it back to <code>false</code>, restart, recheck <code>/apps/pwa/health</code></td></tr>
           </tbody>
         </table>
@@ -1710,12 +1710,12 @@ journalctl -u pwa-app -n 30 --no-pager</code></pre>
 
       <div class="cmd">
         <div class="cmd-head"><span>bash · on the VPS as root</span><button class="copy">Copy</button></div>
-<pre><code>systemctl status pwa-app
-journalctl -u pwa-app -f
-journalctl -u pwa-app --since "10 min ago" --no-pager
+<pre><code>systemctl status storefront-pwa-live
+journalctl -u storefront-pwa-live -f
+journalctl -u storefront-pwa-live --since "10 min ago" --no-pager
 curl -s localhost:3007/healthz
 nginx -t &amp;&amp; systemctl reload nginx
-tail -f /var/log/nginx/pwa.gaapps.cloud.error.log</code></pre>
+tail -f /var/log/nginx/pwa.proecomtech.com.error.log</code></pre>
       </div>
     </section>
 
@@ -1723,7 +1723,7 @@ tail -f /var/log/nginx/pwa.gaapps.cloud.error.log</code></pre>
 
   <footer>
     <span>Storefront PWA · port 3007 · Ubuntu 24.04</span>
-    <span>Fleet runbook: ../../DEPLOY.md · Source: apps/pwa-app/DEPLOY.md</span>
+    <span>Fleet runbook: ../../DEPLOY.md · Source: apps/storefront-pwa-live/DEPLOY.md</span>
   </footer>
 
 </div>
@@ -1758,7 +1758,7 @@ tail -f /var/log/nginx/pwa.gaapps.cloud.error.log</code></pre>
   });
 
   // Step completion, persisted per viewer ------------------------------
-  var KEY = "pwa-app-deploy-progress";
+  var KEY = "storefront-pwa-live-deploy-progress";
   var boxes = Array.prototype.slice.call(document.querySelectorAll(".doneline input"));
   var saved = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { saved = {}; }

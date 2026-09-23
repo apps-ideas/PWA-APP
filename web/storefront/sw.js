@@ -83,10 +83,57 @@ function isExcluded(url) {
   return false;
 }
 
+/**
+ * Google Fonts is two hosts and always has been: the stylesheet comes from
+ * googleapis, the font files it names come from gstatic. Caching one without
+ * the other is the same as caching neither, so they are tested together.
+ */
+function isGoogleFonts(url) {
+  return url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
+}
+
+/**
+ * Which assets this shop has asked the worker to cache.
+ *
+ * The merchant's five switches map onto `request.destination` rather than onto
+ * file extensions, because a destination is what the browser says the bytes are
+ * for and an extension is a guess. "CSS files" covers scripts too — they are
+ * one switch in the admin because they are one decision: either the theme's
+ * fingerprinted code is cacheable or it is not, and Shopify fingerprints both
+ * the same way.
+ */
 function isCacheableAsset(request, url) {
-  if (url.origin !== self.location.origin && url.hostname !== 'cdn.shopify.com') return false;
+  var rules = CFG.cache;
+  if (!rules.enabled) return false;
+
   var d = request.destination;
-  return d === 'style' || d === 'script' || d === 'font' || d === 'image';
+
+  if (isGoogleFonts(url)) return rules.googleFonts && (d === 'style' || d === 'font' || d === '');
+  if (url.origin !== self.location.origin && url.hostname !== 'cdn.shopify.com') return false;
+
+  if (d === 'font') return rules.googleFonts;
+  if (d === 'style' || d === 'script') return rules.cssFiles;
+  if (d === 'image') return rules.images;
+  return false;
+}
+
+/**
+ * Whether a navigation's response may be kept.
+ *
+ * Separate from whether it is served from cache when the network fails: a
+ * cached page is always worth showing to someone with no connection, and this
+ * only decides what goes in. The shop's own front page is split out from the
+ * rest of the storefront because it is the one page a merchant may want held
+ * when they do not want product pages held — prices and stock live on those.
+ */
+function mayCacheNavigation(url) {
+  var rules = CFG.cache;
+  if (!rules.enabled) return false;
+  for (var i = 0; i < OURS.length; i++) {
+    if (url.pathname === OURS[i]) return true;
+  }
+  if (url.pathname === '/') return rules.homePage;
+  return rules.storefront;
 }
 
 /** Opaque responses report status 0 and an unknown size; storing them is how a
@@ -109,10 +156,34 @@ function trim(cacheName, max) {
   });
 }
 
+/**
+ * Precache one URL, and never let it take the install down with it.
+ *
+ * cache.addAll() is all-or-nothing: one 404 in a merchant's pasted asset list
+ * rejects the whole batch, and the shell — the one entry that actually matters
+ * — is not cached either. So each entry is fetched on its own and a failure is
+ * logged and stepped over.
+ */
+function precacheOne(cache, url) {
+  // A cross-origin request without an explicit mode gets an opaque response,
+  // which isStorable would refuse anyway. cors is what cdn.shopify.com and
+  // Google Fonts both answer.
+  var request = new Request(url, { mode: url.indexOf('http') === 0 ? 'cors' : 'same-origin' });
+
+  return fetch(request).then(function (response) {
+    if (!isStorable(response)) throw new Error('not storable: HTTP ' + response.status);
+    return cache.put(request, response);
+  }).catch(function (err) {
+    console.warn('[pwa] could not precache ' + url + ':', err && err.message);
+  });
+}
+
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(PAGE_CACHE)
-      .then(function (cache) { return cache.addAll(CFG.precache); })
+      .then(function (cache) {
+        return Promise.all(CFG.precache.map(function (url) { return precacheOne(cache, url); }));
+      })
       // A failed precache must not block activation: the worker is still useful
       // without an offline page, and a permanently installing worker is not.
       .catch(function (err) { console.warn('[pwa] precache failed:', err); })
@@ -142,7 +213,7 @@ self.addEventListener('activate', function (event) {
  * speed optimisation — the few hundred milliseconds are not worth showing
  * someone a sold-out product as available.
  */
-function handleNavigation(request) {
+function handleNavigation(request, url) {
   var timer;
   var timeout = new Promise(function (resolve) {
     timer = setTimeout(function () { resolve(null); }, NETWORK_TIMEOUT_MS);
@@ -150,7 +221,7 @@ function handleNavigation(request) {
 
   var network = fetch(request).then(function (response) {
     clearTimeout(timer);
-    if (isStorable(response)) {
+    if (mayCacheNavigation(url) && isStorable(response)) {
       var copy = response.clone();
       caches.open(PAGE_CACHE).then(function (cache) {
         return cache.put(request, copy).then(function () { return trim(PAGE_CACHE, MAX_PAGES); });
@@ -164,7 +235,11 @@ function handleNavigation(request) {
 
   function fallback() {
     return caches.match(CFG.offlineUrl).then(function (offline) {
-      return offline || new Response('You are offline.', {
+      // The merchant's own wording, even here. This branch is only reached when
+      // the offline page itself was never cached, which is exactly the moment a
+      // customer should not be shown a different message than the one the
+      // merchant wrote and previewed.
+      return offline || new Response(CFG.offlineText, {
         status: 503,
         headers: { 'Content-Type': 'text/plain; charset=utf-8' }
       });
@@ -224,7 +299,7 @@ self.addEventListener('fetch', function (event) {
   if (url.origin === self.location.origin && isExcluded(url)) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(handleNavigation(request));
+    event.respondWith(handleNavigation(request, url));
     return;
   }
 

@@ -4,7 +4,7 @@
  * A merchant uploads one square logo. Everything a manifest needs is derived
  * from it on first request and cached on disk, keyed by `renderRev` — a hash of
  * the upload *and* the settings that affect rendering — so a re-upload or a
- * colour change invalidates every derivative at once, URLs included.
+ * color change invalidates every derivative at once, URLs included.
  *
  * Only sizes on the allow-lists below are ever rendered. The render routes are
  * public (they are reached through the app proxy, where a signature cannot be
@@ -90,10 +90,10 @@ function derivedDir(shop) {
  * The cache key for everything derived from the icon.
  *
  * Not just the uploaded file's hash: the maskable icons are padded with the
- * background colour, the splash screens are drawn on it, and the placeholder
- * icon is drawn from the theme colour and the store's initial. All of those are
+ * background color, the splash screens are drawn on it, and the placeholder
+ * icon is drawn from the theme color and the store's initial. All of those are
  * settings, not pixels. Keying on the upload alone would leave a merchant who
- * changes their background colour serving last month's renders out of a
+ * changes their background color serving last month's renders out of a
  * year-long immutable cache, with no way to flush it.
  */
 function renderRev(settings) {
@@ -107,7 +107,7 @@ function renderRev(settings) {
     (settings.shortName || settings.name || '?').trim().charAt(0).toUpperCase(),
     // The manual escape hatch. Nothing reads it but this hash — it is here so
     // that "Force a refresh" in the admin can move every derived URL without
-    // the merchant having to change a colour they are happy with.
+    // the merchant having to change a color they are happy with.
     settings.renderVersion || 1,
   ].join('|');
   return crypto.createHash('sha256').update(seed).digest('hex').slice(0, 12);
@@ -154,7 +154,7 @@ async function cached(target, produce) {
  *
  * Everything is re-encoded to PNG rather than stored as received: it normalises
  * the derivative pipeline, and re-encoding through sharp discards any EXIF,
- * colour profile or trailing payload that came in with the original file.
+ * color profile or trailing payload that came in with the original file.
  */
 async function saveUpload(shop, kind, buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
@@ -230,7 +230,7 @@ function escapeXml(value) {
 
 /**
  * The icon a store gets before anyone uploads a logo: its initial on the theme
- * colour. It exists so that enabling the app embed is enough to make the store
+ * color. It exists so that enabling the app embed is enough to make the store
  * installable — an icon-less manifest is rejected by Chrome, and "install is
  * broken until you visit the admin" is a worse first run than a plain letter.
  */
@@ -278,10 +278,10 @@ async function renderIcon(shop, settings, size, maskable) {
     const logo = await baseIcon(shop, settings, inner);
     const offset = Math.round((size - inner) / 2);
 
-    // Padded with the background colour rather than the theme colour, for the
+    // Padded with the background color rather than the theme color, for the
     // same reason the splash screen uses it: an uploaded logo usually carries
-    // its own light background, and padding it with a bold brand colour puts a
-    // white square inside a coloured circle. Matching the splash also makes
+    // its own light background, and padding it with a bold brand color puts a
+    // white square inside a colored circle. Matching the splash also makes
     // launching the app look continuous with its icon.
     //
     // A maskable icon must be opaque to the edges: the platform crops it to its
@@ -300,7 +300,7 @@ async function renderIcon(shop, settings, size, maskable) {
   });
 }
 
-/** iOS startup image: the logo centred on the background colour. */
+/** iOS startup image: the logo centred on the background color. */
 /*
  * Logo height on the iOS launch images, in the canvas's own pixels.
  *
