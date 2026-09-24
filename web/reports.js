@@ -56,6 +56,122 @@ const COOLDOWN_MS = 30000;
 const PSI_ENDPOINT = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
 const PSI_KEY = process.env.PAGESPEED_API_KEY || '';
 
+/**
+ * The pages a report can be run against.
+ *
+ * Reports used to measure one URL — the manifest's start URL, which is the home
+ * page on nearly every store. That answers "how fast is my home page" and
+ * nothing else, and a home page is the least representative page a Shopify
+ * storefront has: it is the one a merchant has already optimised, and it is not
+ * where the images, the variant pickers or the review widgets live. A slow
+ * product template is invisible from there.
+ *
+ * `prefix` is what turns a handle into a path, so a merchant can type
+ * `summer-sale` rather than `/collections/summer-sale`. The three with no
+ * prefix take no input at all: two are fixed pages, and `custom` is the escape
+ * hatch for a search page, a blog post or anything else this list does not name.
+ */
+const TARGETS = {
+  start: { label: 'App start URL', prefix: null, needsPath: false },
+  home: { label: 'Home page', prefix: null, needsPath: false },
+  collection: { label: 'Collection page', prefix: '/collections/', needsPath: true },
+  product: { label: 'Product page', prefix: '/products/', needsPath: true },
+  page: { label: 'Page', prefix: '/pages/', needsPath: true },
+  custom: { label: 'Custom path', prefix: null, needsPath: true },
+};
+
+const DEFAULT_TARGET = 'start';
+
+/** Longer than any real storefront path and short enough to keep out of the
+ *  PageSpeed query string's own limits. */
+const MAX_PATH_LENGTH = 500;
+
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+function badRequest(message) {
+  return Object.assign(new Error(message), { status: 400 });
+}
+
+/**
+ * Reduce whatever the merchant typed to a root-relative path on their own store.
+ *
+ * This is the security boundary for the whole feature, so it rejects rather
+ * than repairs. Whatever comes back is concatenated onto `https://<shop>` and
+ * handed to Google to load, which is the one thing that makes a free-text field
+ * here worth being careful about: a value that escapes the storefront would
+ * have this app commissioning a public report on somebody else's site.
+ *
+ * Three shapes get through, and everything else is refused:
+ *
+ *   /collections/sale          a root-relative path, used as-is
+ *   https://<shop>/products/x  the merchant pasted from the address bar
+ *   (a handle)                 handled by the caller, which adds the prefix
+ */
+function normalisePath(shop, raw) {
+  let value = String(raw || '').trim();
+  if (!value || value.length > MAX_PATH_LENGTH) return null;
+  if (CONTROL_CHARS.test(value)) return null;
+
+  if (/^https?:\/\//i.test(value)) {
+    let parsed;
+    try {
+      parsed = new URL(value);
+    } catch (err) {
+      return null;
+    }
+    if (parsed.hostname.toLowerCase() !== String(shop).toLowerCase()) return null;
+    value = parsed.pathname + parsed.search;
+  }
+
+  // `//evil.example/x` is a path by every test that only checks the first
+  // character, and leaves the storefront entirely once it is concatenated.
+  if (value.startsWith('//')) return null;
+  if (!value.startsWith('/')) return null;
+
+  // Backslashes are path separators to some URL parsers and not to others,
+  // which is exactly the disagreement a bypass is built out of.
+  if (value.includes('\\')) return null;
+
+  return value;
+}
+
+/**
+ * Work out which URL a run should measure.
+ *
+ * Resolved before the cooldown is stamped, so a typo costs the merchant a
+ * correction rather than thirty seconds of waiting to retype it.
+ */
+function resolveTarget(shop, settings, target, rawPath) {
+  const key = Object.prototype.hasOwnProperty.call(TARGETS, target) ? target : DEFAULT_TARGET;
+  const spec = TARGETS[key];
+
+  if (!spec.needsPath) {
+    const path = key === 'home' ? '/' : settings.startUrl;
+    return { target: key, path, url: 'https://' + shop + path };
+  }
+
+  let raw = String(rawPath || '').trim();
+  if (!raw) throw badRequest('Enter the ' + spec.label.toLowerCase() + ' to measure.');
+
+  // A bare handle, which is what a merchant reads off their own admin. Only
+  // when it is not already a path or a URL, so `/collections/sale` does not
+  // become `/collections//collections/sale`.
+  if (spec.prefix && !raw.startsWith('/') && !/^https?:\/\//i.test(raw)) {
+    raw = spec.prefix + raw.replace(/^\/+/, '');
+  }
+
+  const path = normalisePath(shop, raw);
+  if (!path) {
+    throw badRequest(
+      'That is not a page on ' + shop + '. Enter a path like ' +
+      (spec.prefix ? spec.prefix + 'your-handle' : '/pages/about') +
+      ', or paste the full URL from your storefront.'
+    );
+  }
+
+  return { target: key, path, url: 'https://' + shop + path };
+}
+
 /** shop -> timestamp of the last run that started. */
 const lastRun = new Map();
 
@@ -106,6 +222,10 @@ function summarise(report) {
     id: report.id,
     createdAt: report.createdAt,
     url: report.url,
+    // Reports can now be run against different pages, so the row needs to say
+    // which one — without it two runs an hour apart are indistinguishable.
+    target: report.target || 'start',
+    path: report.path || null,
     strategy: report.strategy,
     ok: report.ok,
     error: report.error || null,
@@ -494,14 +614,19 @@ function cooldownRemaining(shop) {
   return Math.max(0, COOLDOWN_MS - (Date.now() - last));
 }
 
-async function build(shop, settings, proxyBase, strategy) {
-  const url = 'https://' + shop + settings.startUrl;
+async function build(shop, settings, proxyBase, strategy, resolved) {
+  const { url, path, target } = resolved;
   const storefront = await inspectStorefront(shop, proxyBase);
 
   const report = {
     id: crypto.randomBytes(8).toString('hex'),
     createdAt: new Date().toISOString(),
     url,
+    // Stored alongside the URL because the history lists runs against different
+    // pages now, and "/products/blue-hat" in a column is the only thing that
+    // tells two otherwise identical rows apart.
+    target,
+    path,
     strategy,
     ok: true,
     error: null,
@@ -536,9 +661,19 @@ async function build(shop, settings, proxyBase, strategy) {
  * run already under way — the second of which is not an error at all, it is the
  * first run's own promise handed back.
  */
-function generate(shop, settings, proxyBase, strategy) {
+function generate(shop, settings, proxyBase, strategy, target, targetPath) {
   if (!settingsStore.isValidShop(shop)) {
     return Promise.reject(Object.assign(new Error('invalid shop'), { status: 400 }));
+  }
+
+  // Before the in-flight and cooldown checks: a rejected path is the merchant's
+  // typo, and making them wait out a cooldown to fix one would be punishing
+  // them for a run that never started.
+  let resolved;
+  try {
+    resolved = resolveTarget(shop, settings, target, targetPath);
+  } catch (err) {
+    return Promise.reject(err);
   }
 
   const running = inFlight.get(shop);
@@ -554,7 +689,7 @@ function generate(shop, settings, proxyBase, strategy) {
 
   lastRun.set(shop, Date.now());
 
-  const run = build(shop, settings, proxyBase, strategy === 'desktop' ? 'desktop' : 'mobile')
+  const run = build(shop, settings, proxyBase, strategy === 'desktop' ? 'desktop' : 'mobile', resolved)
     .then((report) => {
       const data = readAll(shop);
       data.reports.unshift(report);
@@ -574,6 +709,7 @@ module.exports = {
   COOLDOWN_MS,
   MAX_REPORTS,
   REPORTS_DIR,
+  TARGETS,
   checkSetup,
   // Exported for the tests. What a merchant is told when the storefront serves
   // something other than the manifest is the whole point of this check, and it
@@ -581,6 +717,10 @@ module.exports = {
   explainManifestFailure,
   generate,
   list,
+  // Exported for the tests: the path resolver is the security boundary for the
+  // custom-URL field, and every way it can be fed a URL off the storefront is
+  // worth asserting directly rather than through a full report run.
+  resolveTarget,
   read,
   remove,
   removeShop,

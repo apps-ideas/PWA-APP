@@ -501,11 +501,37 @@ function reportsPage() {
     '<section>' +
     '<div class="between">' +
     '<div class="row">' +
+    // The page comes before the device on purpose: which page you measure
+    // changes the score far more than mobile versus desktop does, and a
+    // merchant who has only ever seen a home page score does not know that.
+    field('reportTarget', 'Page to measure',
+      select('reportTarget', [
+        ['start', 'App start URL'],
+        ['home', 'Home page'],
+        ['collection', 'Collection page'],
+        ['product', 'Product page'],
+        ['page', 'Page'],
+        ['custom', 'Custom path'],
+      ])) +
     field('reportStrategy', 'Measure as',
       select('reportStrategy', [['mobile', 'Mobile'], ['desktop', 'Desktop']])) +
     '</div>' +
     '<button type="button" id="generateReport">Generate report</button>' +
     '</div>' +
+
+    // Hidden for the two targets that need no input. The prefix is shown
+    // rather than typed, so a merchant can paste the handle straight from
+    // their own admin without working out what goes in front of it.
+    '<div id="reportPathRow" hidden style="margin-top:14px">' +
+    field('reportPath', 'Which one',
+      '<div class="row" style="gap:0;align-items:stretch">' +
+      '<span class="prefix" id="reportPathPrefix">/collections/</span>' +
+      text('reportPath', 'summer-sale') +
+      '</div>',
+      '<span id="reportPathHint">The handle from your Shopify admin, or a full path. ' +
+      'You can also paste the whole URL from your storefront.</span>') +
+    '</div>' +
+
     '<p class="hint" style="margin:14px 0 0" id="reportNote">A run takes up to a minute — PageSpeed ' +
     'loads your store on a throttled connection, which is the point of it.</p>' +
     '</section>' +

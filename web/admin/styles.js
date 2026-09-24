@@ -112,6 +112,16 @@ const STYLES = `
     border-radius:8px; background:var(--field); cursor:pointer; vertical-align:middle; }
   .colorrow { display:flex; gap:8px; align-items:center; }
   .colorrow input[type=text] { flex:1; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  /* The fixed part of a storefront path, welded to the input it belongs to:
+     shown rather than typed so a merchant can paste a handle straight from
+     their Shopify admin. Hidden when the target takes a whole path. */
+  .prefix { display:flex; align-items:center; padding:8px 2px 8px 10px; white-space:nowrap;
+    border:1px solid var(--line); border-right:0; border-radius:8px 0 0 8px;
+    background:var(--tint); color:var(--muted);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; }
+  .prefix + input[type=text] { border-radius:0 8px 8px 0;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .prefix[hidden] + input[type=text] { border-radius:8px; }
   .check { display:flex; gap:9px; align-items:flex-start; margin-bottom:12px; }
   .check input { margin-top:3px; flex:0 0 auto; }
   .check label { font-weight:400; margin:0; }
@@ -255,6 +265,9 @@ const STYLES = `
     color:var(--muted); font-weight:600; padding:0 10px 8px 0; }
   table.data td { border-top:1px solid var(--line); padding:9px 10px 9px 0; vertical-align:top; }
   table.data td:last-child, table.data th:last-child { text-align:right; padding-right:0; }
+  table.data .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px;
+    word-break:break-all; }
+  table.data .why { color:var(--muted); font-size:12px; margin-top:2px; }
 
   /* Lighthouse-style score rings, drawn with a conic gradient so there is no
      SVG to keep in step with the palette. */

@@ -857,6 +857,13 @@ function script() {
 
   /* ------------------------------------------------------------- reports */
 
+  /* How a stored report's target reads in the history. Keys match TARGETS in
+   * web/reports.js; an unknown one falls back rather than showing a raw key. */
+  var REPORT_TARGET_LABELS = {
+    start: 'App start URL', home: 'Home page', collection: 'Collection page',
+    product: 'Product page', page: 'Page', custom: 'Custom path'
+  };
+
   function scoreClass(n) {
     if (n == null) return '';
     if (n >= 90) return 'g';
@@ -898,7 +905,7 @@ function script() {
 
     var table = node('table', 'data');
     var head = node('tr');
-    ['Created', 'Device', 'PWA score', 'Performance', ''].forEach(function (h) {
+    ['Created', 'Page', 'Device', 'PWA score', 'Performance', ''].forEach(function (h) {
       head.appendChild(node('th', null, h));
     });
     table.appendChild(head);
@@ -910,6 +917,15 @@ function script() {
       when.appendChild(node('div', null, new Date(row.createdAt).toLocaleString()));
       if (row.error) when.appendChild(node('div', 'why muted', row.error));
       tr.appendChild(when);
+
+      // The path, not the whole URL: every row shares the same host, and the
+      // part that differs is the part worth reading. Reports stored before
+      // this column existed have no path, so they are labelled by what they
+      // were — a run against the start URL — rather than left blank.
+      var where = node('td');
+      where.appendChild(node('div', 'mono', row.path || '/'));
+      where.appendChild(node('div', 'why muted', REPORT_TARGET_LABELS[row.target] || 'App start URL'));
+      tr.appendChild(where);
 
       tr.appendChild(node('td', null, row.strategy === 'desktop' ? 'Desktop' : 'Mobile'));
 
@@ -1057,6 +1073,54 @@ function script() {
       });
   }
 
+  /*
+   * What each page target asks the merchant for.
+   *
+   * Mirrors TARGETS in web/reports.js, which is the half that enforces it —
+   * this is only what to show. The prefix in particular is presentation: the
+   * server adds it to a bare handle regardless of what this field displayed.
+   */
+  var REPORT_TARGETS = {
+    start: { prefix: '', placeholder: '', hint: '' },
+    home: { prefix: '', placeholder: '', hint: '' },
+    collection: {
+      prefix: '/collections/', placeholder: 'summer-sale',
+      hint: 'The collection handle from your Shopify admin, or a full path.'
+    },
+    product: {
+      prefix: '/products/', placeholder: 'blue-hat',
+      hint: 'The product handle from your Shopify admin, or a full path.'
+    },
+    page: {
+      prefix: '/pages/', placeholder: 'about-us',
+      hint: 'The page handle from your Shopify admin, or a full path.'
+    },
+    custom: {
+      prefix: '', placeholder: '/search?q=hat',
+      hint: 'Any path on your storefront — a blog post, a search, a filtered collection.'
+    }
+  };
+
+  function renderReportTarget() {
+    var spec = REPORT_TARGETS[value('reportTarget')] || REPORT_TARGETS.start;
+    var row = el('reportPathRow');
+    var prefix = el('reportPathPrefix');
+
+    // A target that needs no path hides the whole row rather than disabling it:
+    // there is nothing to type, so an empty box would only raise the question.
+    row.hidden = !spec.placeholder;
+    if (row.hidden) return;
+
+    prefix.hidden = !spec.prefix;
+    prefix.textContent = spec.prefix;
+    el('reportPath').placeholder = spec.placeholder;
+    el('reportPathHint').textContent = spec.hint +
+      ' You can also paste the whole URL from your storefront.';
+  }
+
+  el('reportTarget').addEventListener('change', renderReportTarget);
+  renderReportTarget();
+
   el('generateReport').addEventListener('click', function () {
     var button = el('generateReport');
     var note = el('reportNote');
@@ -1068,7 +1132,11 @@ function script() {
     api('/api/reports', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ strategy: value('reportStrategy') || 'mobile' })
+      body: JSON.stringify({
+        strategy: value('reportStrategy') || 'mobile',
+        target: value('reportTarget') || 'start',
+        path: value('reportPath')
+      })
     }).then(function (body) {
       renderReportList(body.reports);
       renderReportDetail(body.report);

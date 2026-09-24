@@ -845,11 +845,17 @@ app.get('/api/reports/:id', auth.requireSession, (req, res) => {
 app.post('/api/reports', auth.requireSession, async (req, res) => {
   try {
     const settings = settingsStore.read(req.shop);
+    const body = req.body || {};
     const report = await reports.generate(
       req.shop,
       settings,
       ADMIN_PROXY_BASE,
-      String((req.body && req.body.strategy) || 'mobile')
+      String(body.strategy || 'mobile'),
+      String(body.target || 'start'),
+      // Left as the raw string. reports.resolveTarget is the one place that
+      // decides what a valid page is, and a second opinion here would be a
+      // second thing to keep in step with it.
+      String(body.path || '')
     );
     res.set('Cache-Control', 'no-store');
     return res.json({ report, reports: reports.list(req.shop) });

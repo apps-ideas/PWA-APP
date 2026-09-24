@@ -806,6 +806,79 @@ async function run() {
     (await admin('/api/reports/deadbeef', { method: 'DELETE' })).status === 404);
   ok('the quick setup wizard answers too', (await admin('/api/setup')).status !== 402);
 
+  console.log('\n== which page a report measures ==');
+
+  /*
+   * In-process, for the reason the manifest classifier below is: resolveTarget
+   * is pure, and reaching it through generate() would spend a PageSpeed quota
+   * unit and a thirty-second cooldown per case.
+   */
+  process.env.DATA_DIR = DATA_DIR;
+  const targetModule = require(path.join(APP, 'web', 'reports.js'));
+  const resolve = (target, p) =>
+    targetModule.resolveTarget(SHOP, { startUrl: '/?source=pwa' }, target, p);
+  const refuses = (target, p) => {
+    try {
+      resolve(target, p);
+      return false;
+    } catch (err) {
+      return err.status === 400;
+    }
+  };
+
+  ok('the default target is still the app start URL',
+    resolve('start').url === 'https://' + SHOP + '/?source=pwa', resolve('start').url);
+  ok('the home page is its own target',
+    resolve('home').url === 'https://' + SHOP + '/', resolve('home').url);
+  ok('an unknown target falls back to the start URL rather than failing',
+    resolve('nonsense', 'x').target === 'start');
+
+  // A merchant reads a handle off their own admin; typing the prefix as well is
+  // the mistake this is meant to save them from, so both have to work.
+  ok('a collection handle becomes a collection path',
+    resolve('collection', 'summer-sale').url === 'https://' + SHOP + '/collections/summer-sale',
+    resolve('collection', 'summer-sale').url);
+  ok('a collection path is left alone rather than double-prefixed',
+    resolve('collection', '/collections/summer-sale').path === '/collections/summer-sale',
+    resolve('collection', '/collections/summer-sale').path);
+  ok('a product handle becomes a product path',
+    resolve('product', 'blue-hat').path === '/products/blue-hat');
+  ok('a CMS page handle becomes a pages path',
+    resolve('page', 'about-us').path === '/pages/about-us');
+  ok('a custom path is taken as given, query string and all',
+    resolve('custom', '/search?q=hat').path === '/search?q=hat');
+  ok('a full storefront URL is reduced to its path',
+    resolve('custom', 'https://' + SHOP + '/blogs/news/post').path === '/blogs/news/post');
+  ok('the target is recorded so the history can label the run',
+    resolve('product', 'blue-hat').target === 'product');
+
+  /*
+   * The resolved path is concatenated onto https://<shop> and handed to Google
+   * to load and publish a report on, so anything that escapes the storefront is
+   * this app commissioning a public report on somebody else's site.
+   */
+  ok('a foreign host is refused', refuses('custom', 'https://evil.example/x'));
+  ok('a lookalike host is refused', refuses('custom', 'https://' + SHOP + '.evil.example/x'));
+  ok('a protocol-relative URL is refused', refuses('custom', '//evil.example/x'));
+  ok('a backslash is refused, since URL parsers disagree about it',
+    refuses('custom', '/foo\\bar'));
+  ok('a path that is not a path is refused', refuses('custom', 'no-leading-slash'));
+  ok('a control character is refused', refuses('custom', '/foo\u0000bar'));
+  ok('an over-long path is refused', refuses('custom', '/' + 'x'.repeat(600)));
+  ok('a target that needs a page but was given none is refused',
+    refuses('collection', '') && refuses('custom', ''));
+
+  // Through the route, so the 400 reaches the admin as a message rather than a
+  // 502. A bad path must not spend the cooldown either — see generate().
+  res = await admin('/api/reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target: 'custom', path: 'https://evil.example/x' }),
+  });
+  ok('the route refuses an off-storefront page with 400', res.status === 400, 'got ' + res.status);
+  ok('and says so in a way the admin can show',
+    /not a page on/.test((await res.json()).error || ''));
+
   console.log('\n== the device split ==');
 
   // From the events recorded in the counters section above.
