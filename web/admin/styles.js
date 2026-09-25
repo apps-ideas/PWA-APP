@@ -43,7 +43,7 @@ const STYLES = `
   /* ------------------------------------------------------------ the frame */
 
   .shell { display:grid; grid-template-columns:236px 1fr; min-height:100vh; align-items:start; }
-  .shell.collapsed { grid-template-columns:0 1fr; }
+  .shell.collapsed { grid-template-columns:100% 1fr; }
 
   .nav { position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
     background:var(--nav); color:var(--nav-fg); display:flex; flex-direction:column; }
@@ -76,7 +76,7 @@ const STYLES = `
     color:var(--text); font-size:14px; line-height:1; cursor:pointer; box-shadow:var(--shadow); }
   .shell.collapsed .navtoggle { left:12px; }
 
-  .content { padding:22px 24px 90px; min-width:0; max-width:1120px; }
+  .content { padding:22px 24px 90px; min-width:0; max-width:100vw; }
   .pagehead { display:flex; align-items:flex-start; gap:16px; justify-content:space-between;
     flex-wrap:wrap; margin-bottom:16px; }
   h1 { font-size:20px; margin:0; }
