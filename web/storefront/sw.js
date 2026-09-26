@@ -137,13 +137,19 @@ function mayCacheNavigation(url) {
 }
 
 /** Opaque responses report status 0 and an unknown size; storing them is how a
- *  cache quietly eats a quota. Store only responses we can actually inspect. */
+ *  cache quietly eats a quota. Store only responses we can actually inspect.
+ *
+ *  `private` is deliberately allowed. It forbids shared caches (CDNs, proxies),
+ *  and a service worker's cache belongs to one browser — the very cache
+ *  `private` permits. Shopify sends `private, max-age=0` on every storefront
+ *  page, so refusing it would mean a root-scoped worker never stores a single
+ *  page. The per-customer paths are already kept out by NEVER_CACHE. */
 function isStorable(response) {
   if (!response) return false;
   if (response.type === 'opaque' || response.type === 'opaqueredirect') return false;
   if (!response.ok) return false;
   var cc = response.headers.get('cache-control') || '';
-  return cc.indexOf('no-store') === -1 && cc.indexOf('private') === -1;
+  return cc.indexOf('no-store') === -1;
 }
 
 /** Crude FIFO trim. Good enough: these caches are a courtesy, not a database. */

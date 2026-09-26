@@ -1,0 +1,27 @@
+# Apache: serve the app's service worker at the storefront root.
+#
+# Only works where Apache itself serves the store's domain and reverse-proxies
+# the storefront to Shopify. A store hosted by Shopify never reads this file —
+# Shopify does not run Apache — so on a stock store use cloudflare-worker.js.
+#
+# Needs mod_rewrite, mod_proxy, mod_proxy_http, mod_headers, and in the
+# VirtualHost (not allowed in .htaccess):
+#     SSLProxyEngine On
+#     ProxyPreserveHost On
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Fetch the real, per-shop file through Shopify's app proxy.
+    RewriteRule ^sw\.js$ https://%{HTTP_HOST}/apps/pwa/sw.js [P,L]
+</IfModule>
+
+<IfModule mod_headers.c>
+    <If "%{REQUEST_URI} == '/sw.js'">
+        Header unset Set-Cookie
+        Header always set Content-Type "application/javascript; charset=utf-8"
+        Header always set Service-Worker-Allowed "/"
+        Header always set X-PWA-Root-Worker "1"
+        Header always set Cache-Control "no-cache, must-revalidate"
+        Header always set X-Content-Type-Options "nosniff"
+    </If>
+</IfModule>

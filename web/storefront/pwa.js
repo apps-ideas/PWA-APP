@@ -372,6 +372,39 @@
    * that the day Shopify starts forwarding the header, the change is visible
    * rather than something we would never think to re-test.
    */
+  /*
+   * The root worker: this same sw.js, re-served at /sw.js by something in front
+   * of Shopify (a Cloudflare Worker, nginx, Apache — see edge/ in the repo).
+   * Served from the root, its default scope is already "/", so no header has to
+   * survive Shopify's proxy at all. That is the whole trick.
+   *
+   * Only trusted when the response carries X-PWA-Root-Worker, which the edge
+   * configs add: a bare /sw.js could be anything, and registering a stranger's
+   * worker over the whole storefront is not a risk worth taking. A miss is
+   * remembered for the session so a stock store pays for one 404, not one per
+   * page view.
+   */
+  var ROOT_SW_URL = '/sw.js';
+  var ROOT_MISS_KEY = 'shopify-pwa:no-root-worker';
+
+  function probeRootWorker() {
+    try {
+      if (sessionStorage.getItem(ROOT_MISS_KEY) === '1') return Promise.resolve(false);
+    } catch (e) { /* no session storage: probe anyway */ }
+    if (!window.fetch) return Promise.resolve(false);
+
+    return window.fetch(ROOT_SW_URL, { method: 'HEAD', cache: 'no-store', credentials: 'omit' }).then(
+      function (res) {
+        var ok = res.ok && res.headers.get('x-pwa-root-worker') === '1';
+        if (!ok) {
+          try { sessionStorage.setItem(ROOT_MISS_KEY, '1'); } catch (e) { /* ignore */ }
+        }
+        return ok;
+      },
+      function () { return false; }
+    );
+  }
+
   function registerServiceWorker() {
     if (!CFG.sw.enabled) return;
     if (!('serviceWorker' in navigator)) return;
@@ -380,6 +413,18 @@
       window.ShopifyPWA.serviceWorker = state;
     }
 
+    probeRootWorker().then(function (hasRoot) {
+      if (!hasRoot) return registerProxyWorker(record);
+      navigator.serviceWorker.register(ROOT_SW_URL, { scope: '/' }).then(
+        function (reg) {
+          record({ scope: reg.scope, rootScope: true, widened: true, via: 'edge' });
+        },
+        function () { registerProxyWorker(record); }
+      );
+    });
+  }
+
+  function registerProxyWorker(record) {
     navigator.serviceWorker.register(CFG.sw.url, { scope: '/' }).then(
       function (reg) {
         record({ scope: reg.scope, rootScope: reg.scope === CFG.origin + '/', widened: true });
