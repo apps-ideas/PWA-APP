@@ -36,7 +36,7 @@ const adminPage = require('./admin-page.js');
 
 const PORT = parseInt(process.env.PORT || '3007', 10);
 const VERIFY_PROXY = String(process.env.PWA_VERIFY_PROXY || '').toLowerCase() === 'true';
-const DEFAULT_PROXY_BASE = '';
+const DEFAULT_PROXY_BASE = '/apps/pwa';
 const APP_VERSION = require('../package.json').version;
 
 /**
