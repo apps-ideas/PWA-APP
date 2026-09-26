@@ -104,10 +104,12 @@ const STYLES = `
 
   label { display:block; font-weight:500; margin-bottom:5px; }
   .sublabel { display:block; font-weight:400; color:var(--muted); font-size:12.5px; margin-top:4px; }
-  input[type=text], input[type=url], input[type=number], select, textarea {
+  input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
     width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px;
     background:var(--field); color:var(--text); font:inherit; }
   textarea { resize:vertical; min-height:64px; }
+  textarea.codebox { margin-top:6px; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+    white-space:pre; overflow:auto; tab-size:2; }
   input[type=color] { width:52px; height:36px; padding:2px; border:1px solid var(--line);
     border-radius:8px; background:var(--field); cursor:pointer; vertical-align:middle; }
   .colorrow { display:flex; gap:8px; align-items:center; }
@@ -150,6 +152,8 @@ const STYLES = `
   .banner.warn { background:var(--warn-bg); border-color:var(--warn-line); }
   .banner.bad { background:transparent; border-color:var(--bad); color:var(--bad); }
   .banner.info { background:var(--tint); border-color:var(--line); }
+  .banner.good { background:transparent; border-color:var(--ok); }
+  .banner.good > strong { color:var(--ok); }
   .banner ul { margin:6px 0 0; padding-left:20px; }
   .banner p { margin:4px 0 0; }
 

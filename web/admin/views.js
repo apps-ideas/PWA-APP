@@ -35,6 +35,7 @@ function sidebar() {
     navItem('install-message', 'message', 'Install message') +
     navItem('cache-assets', 'cache', 'Cache assets') +
     navItem('offline-page', 'offline', 'Offline page') +
+    navItem('offline-browsing', 'cache', 'Offline browsing', 'settings') +
     navItem('settings', 'settings', 'Settings') +
 
     '<p class="navgroup">Reports</p>' +
@@ -276,8 +277,9 @@ function cachePage() {
     '<strong>These only bite where the worker has scope.</strong>' +
     '<p>On a stock Shopify storefront the worker is scoped to <code>/apps/pwa/</code> and never sees a ' +
     'product page, because Shopify strips the <code>Service-Worker-Allowed</code> header a proxy-served ' +
-    'worker needs. Installing does not depend on any of this. The ' +
-    '<a href="#/setup">Quick setup wizard</a> reports which case your store is in.</p>' +
+    'worker needs. Installing does not depend on any of this. ' +
+    '<a href="#/offline-browsing">Offline browsing</a> gives the worker the whole storefront, and ' +
+    'shows which case your store is in.</p>' +
     '</div>' +
 
     '<section>' +
@@ -374,6 +376,97 @@ function offlinePage() {
     '</section>' +
     '</div>' +
     '</div>'
+  );
+}
+
+/*
+ * Full offline browsing. Nothing here is a setting — the worker is the same
+ * file either way. What changes is where it is served from, and that is decided
+ * by something in front of Shopify, so this page checks, deploys and hands out
+ * configs rather than saving anything. See web/edge.js.
+ */
+function offlineBrowsingPage() {
+  const codeBlock = (id, label) =>
+    '<div style="margin-top:12px">' +
+    '<div class="between"><label style="margin:0">' + label + '</label>' +
+    '<button type="button" class="secondary small" data-copy="' + id + '">Copy</button></div>' +
+    '<textarea id="' + id + '" class="codebox" readonly spellcheck="false" rows="12"></textarea>' +
+    '</div>';
+
+  return page('offline-browsing', 'Offline browsing',
+    'Let customers open pages they have already visited with no connection — product pages, ' +
+    'collections, the home page.',
+
+    '<section>' +
+    '<div class="between">' +
+    '<h2 style="margin:0">Status</h2>' +
+    '<button type="button" class="secondary small" id="edgeCheck">Check again</button>' +
+    '</div>' +
+    '<div id="edgeStatus" style="margin-top:12px"><p class="hint" style="margin:0">Checking your storefront…</p></div>' +
+    '</section>' +
+
+    '<section>' +
+    '<h2>Why this needs one extra step</h2>' +
+    '<p class="hint" style="margin:0">A service worker only controls pages below the folder it is served ' +
+    'from. Through Shopify it can only be served from <code>/apps/pwa/</code>, and Shopify strips the ' +
+    'header that would widen it — so it never sees a product page. Served from <code>/sw.js</code> on ' +
+    'your own domain it controls every page. Shopify cannot serve that file; something in front of your ' +
+    'store has to. The storefront script detects it by itself the moment it is there — nothing to save ' +
+    'here afterwards.</p>' +
+    '</section>' +
+
+    '<section>' +
+    '<h2>Set it up with Cloudflare — one click</h2>' +
+    '<p class="hint">For a store whose domain is on Cloudflare with the orange cloud (proxied) on its ' +
+    'Shopify record. This uploads a small Worker and routes <strong>only</strong> ' +
+    '<code>/sw.js</code> to it — nothing else on your storefront goes through it.</p>' +
+    '<ol class="hint" style="padding-left:20px">' +
+    '<li>In Cloudflare open <strong>My Profile › API Tokens › Create Token › Custom token</strong>.</li>' +
+    '<li>Permissions: <code>Account › Workers Scripts › Edit</code>, <code>Zone › Workers Routes › ' +
+    'Edit</code>, <code>Zone › Zone › Read</code>, and optionally <code>Zone › DNS › Read</code> so ' +
+    'the app can warn you about a grey-cloud record.</li>' +
+    '<li>Limit it to your store\'s zone, create it, and paste it below.</li>' +
+    '</ol>' +
+    '<div class="row" style="align-items:flex-end">' +
+    '<div style="flex:1 1 280px">' +
+    '<label for="cfToken">Cloudflare API token</label>' +
+    '<input type="password" id="cfToken" autocomplete="off" spellcheck="false" placeholder="Paste the token">' +
+    '</div>' +
+    '<button type="button" id="cfDeploy">Deploy to Cloudflare</button>' +
+    '</div>' +
+    '<p class="hint" style="margin:10px 0 0">The token is used for this one request and never saved. ' +
+    'You can delete it in Cloudflare as soon as this finishes; running this again later needs a new one.</p>' +
+    '<div id="cfResult" style="margin-top:12px"></div>' +
+    '</section>' +
+
+    '<section>' +
+    '<h2>Or set it up by hand</h2>' +
+    '<p class="hint">The same thing, to paste yourself. Each one serves this app\'s worker at ' +
+    '<code>/sw.js</code> with the <code>X-PWA-Root-Worker</code> header the storefront looks for.</p>' +
+    '<details><summary>Cloudflare Worker (manual)</summary>' +
+    '<p class="hint">Workers &amp; Pages › Create › Hello World › Edit code, replace everything with ' +
+    'this, Deploy. Then Settings › Domains &amp; Routes › Add route <code id="edgeRouteHint">yourstore.com/sw.js</code>.</p>' +
+    codeBlock('edgeCloudflare', 'worker.js') +
+    '</details>' +
+    '<details><summary>nginx (your own reverse proxy)</summary>' +
+    '<p class="hint">Only if your domain already points at an nginx you run in front of Shopify. Goes ' +
+    'inside that <code>server { }</code> block.</p>' +
+    codeBlock('edgeNginx', 'nginx location') +
+    '</details>' +
+    '<details><summary>Apache .htaccess (your own reverse proxy)</summary>' +
+    '<p class="hint">Only if Apache serves your domain and proxies it to Shopify. A store hosted by ' +
+    'Shopify never reads an .htaccess.</p>' +
+    codeBlock('edgeApache', '.htaccess') +
+    '</details>' +
+    '</section>' +
+
+    '<section>' +
+    '<h2>What gets cached</h2>' +
+    '<p class="hint" style="margin:0">Pages are fetched from the network first and only served from the ' +
+    'cache when there is no connection, so a customer online always sees live prices and stock. Carts, ' +
+    'checkout and accounts are never cached. Which page types are kept is set on ' +
+    '<a href="#/cache-assets">Cache assets</a>.</p>' +
+    '</section>'
   );
 }
 
@@ -619,8 +712,9 @@ function faqsPage() {
     ['Why can\'t my customers browse offline?',
       'A service worker may only control pages below the folder it is served from. Widening that needs ' +
       'a Service-Worker-Allowed header, and Shopify strips that header when it proxies /apps/pwa/. So ' +
-      'the worker\'s scope stays /apps/pwa/ and it never sees a product page. Installing works fine ' +
-      'without it — offline browsing is the one thing this route cannot deliver.'],
+      'the worker\'s scope stays /apps/pwa/ and it never sees a product page. The fix is to serve the ' +
+      'worker at /sw.js on your own domain, which needs something in front of Shopify — the Offline ' +
+      'browsing page sets that up on Cloudflare in one click, or gives you the config to paste.'],
 
     ['Why is my iOS install count lower than I expected?',
       'Safari has no install event of any kind. An iOS install is invisible until the app is first ' +
@@ -702,6 +796,7 @@ ${shop && apiKey ? '<script src="https://cdn.shopify.com/shopifycloud/app-bridge
     ${installMessagePage()}
     ${cachePage()}
     ${offlinePage()}
+    ${offlineBrowsingPage()}
     ${settingsPage()}
     ${reportsPage()}
     ${analyticsPage()}

@@ -163,7 +163,7 @@ function script() {
   /* -------------------------------------------------------------- routing */
 
   var ROUTES = ['home', 'configuration', 'install-message', 'cache-assets', 'offline-page',
-                'settings', 'reports', 'analytics', 'setup', 'faqs'];
+                'offline-browsing', 'settings', 'reports', 'analytics', 'setup', 'faqs'];
 
   function currentRoute() {
     var hash = String(location.hash || '').replace(/^#\\//, '');
@@ -193,6 +193,7 @@ function script() {
     if (route === 'analytics' && !statsData) loadStats();
     if (route === 'reports') loadReports();
     if (route === 'setup' && !el('setupResult').firstChild) runSetup();
+    if (route === 'offline-browsing' && !edgeLoaded) loadEdge();
   }
 
   window.addEventListener('hashchange', showRoute);
@@ -1190,6 +1191,127 @@ function script() {
   }
 
   el('runSetup').addEventListener('click', runSetup);
+  
+  /* ----------------------------------------------------- offline browsing */
+
+  var edgeLoaded = false;
+
+  function renderEdgeStatus(s) {
+    var box = el('edgeStatus');
+    clear(box);
+
+    var div = node('div', 'banner ' + (s.active ? 'good' : (s.customDomain ? 'warn' : 'info')));
+    div.appendChild(node('strong', null, s.active
+      ? 'Full offline browsing is on'
+      : 'Only the app shell works offline'));
+    div.appendChild(node('p', null, s.detail));
+    if (!s.active && !s.customDomain) {
+      div.appendChild(node('p', null, 'Your store is served at ' + s.host + ', a Shopify address. ' +
+        'Offline browsing needs your own domain, routed through Cloudflare or a server you run.'));
+    }
+    var meta = node('p', 'hint', 'Checked ' + s.url + (s.status ? ' \\u2014 HTTP ' + s.status : '') +
+      ' at ' + new Date().toLocaleTimeString() + '.');
+    meta.style.margin = '8px 0 0';
+    div.appendChild(meta);
+    box.appendChild(div);
+
+    el('edgeRouteHint').textContent = s.host + '/sw.js';
+  }
+
+  function loadEdge() {
+    var button = el('edgeCheck');
+    button.disabled = true;
+    clear(el('edgeStatus'));
+    el('edgeStatus').appendChild(node('p', 'hint', 'Checking your storefront\\u2026'));
+
+    return api('/api/offline-edge').then(function (body) {
+      edgeLoaded = true;
+      renderEdgeStatus(body.status);
+      el('edgeCloudflare').value = body.snippets.cloudflare;
+      el('edgeNginx').value = body.snippets.nginx;
+      el('edgeApache').value = body.snippets.apache;
+    }).catch(function (err) {
+      clear(el('edgeStatus'));
+      banner('bad', 'Could not check offline browsing', [err.message]);
+    }).then(function () {
+      button.disabled = false;
+    });
+  }
+
+  el('edgeCheck').addEventListener('click', loadEdge);
+
+  el('cfDeploy').addEventListener('click', function () {
+    var button = el('cfDeploy');
+    var input = el('cfToken');
+    var out = el('cfResult');
+    var token = input.value.trim();
+
+    clear(out);
+    if (!token) {
+      out.appendChild(node('p', 'hint', 'Paste a Cloudflare API token first.'));
+      return;
+    }
+
+    button.disabled = true;
+    out.appendChild(node('p', 'hint', 'Deploying to Cloudflare\\u2026'));
+
+    api('/api/offline-edge/cloudflare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token })
+    }).then(function (body) {
+      // The token has done its job; keeping it in the field only invites a
+      // second paste somewhere it should not go.
+      input.value = '';
+      clear(out);
+
+      var done = node('div', 'banner ' + (body.check.active ? 'good' : 'warn'));
+      done.appendChild(node('strong', null, body.check.active
+        ? 'Deployed \\u2014 offline browsing is live on ' + body.host
+        : 'Deployed to ' + body.zone + ', but /sw.js is not answering yet'));
+      var ul = node('ul');
+      body.steps.concat(body.warnings || []).forEach(function (line) { ul.appendChild(node('li', null, line)); });
+      if (!body.check.active) {
+        ul.appendChild(node('li', null, 'Cloudflare can take a minute to roll a new route out. ' +
+          'Press Check again shortly. ' + body.check.detail));
+      }
+      done.appendChild(ul);
+      out.appendChild(done);
+
+      renderEdgeStatus(body.check);
+    }).catch(function (err) {
+      clear(out);
+      var bad = node('div', 'banner bad');
+      bad.appendChild(node('strong', null, 'Cloudflare deploy failed'));
+      bad.appendChild(node('p', null, err.message));
+      out.appendChild(bad);
+    }).then(function () {
+      button.disabled = false;
+    });
+  });
+
+  all('[data-copy]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var box = el(button.getAttribute('data-copy'));
+      var label = button.textContent;
+      function copied() {
+        button.textContent = 'Copied';
+        setTimeout(function () { button.textContent = label; }, 1500);
+      }
+      // The admin is an iframe, where the async clipboard may be refused. The
+      // old selection route works there, so it is the fallback, not an error.
+      function fallback() {
+        box.focus();
+        box.select();
+        try { if (document.execCommand('copy')) copied(); } catch (e) { /* selected; Ctrl+C works */ }
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(box.value).then(copied, fallback);
+      } else {
+        fallback();
+      }
+    });
+  });
 
   /* -------------------------------------------------------- cache refresh */
 

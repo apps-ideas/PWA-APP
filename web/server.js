@@ -31,6 +31,7 @@ const validate = require('./validate.js');
 const auth = require('./auth.js');
 const pages = require('./pages.js');
 const reports = require('./reports.js');
+const edge = require('./edge.js');
 const adminPage = require('./admin-page.js');
 
 const PORT = parseInt(process.env.PORT || '3007', 10);
@@ -827,6 +828,45 @@ app.get('/api/setup', auth.requireSession, async (req, res, next) => {
     res.json(await reports.checkSetup(req.shop, settings, ADMIN_PROXY_BASE));
   } catch (err) {
     next(err);
+  }
+});
+
+/**
+ * Full offline browsing — whether the storefront serves the root worker, and
+ * the edge configs that make it. See web/edge.js.
+ */
+app.get('/api/offline-edge', auth.requireSession, async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      status: await edge.check(req.shop),
+      snippets: edge.snippets(ADMIN_PROXY_BASE),
+      scriptName: edge.SCRIPT_NAME,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * One-click Cloudflare deploy. The token is read from the body, used for the
+ * calls inside edge.deploy, and dropped with the request — it is never logged,
+ * stored or echoed back.
+ */
+app.post('/api/offline-edge/cloudflare', auth.requireSession, async (req, res) => {
+  const token = String((req.body && req.body.token) || '').trim();
+  res.set('Cache-Control', 'no-store');
+
+  if (!token || token.length > 200 || !/^[A-Za-z0-9_-]+$/.test(token)) {
+    return res.status(400).json({ error: 'Paste a Cloudflare API token — letters, digits, - and _ only.' });
+  }
+
+  try {
+    return res.json(await edge.deploy(req.shop, ADMIN_PROXY_BASE, token));
+  } catch (err) {
+    const status = err.status || 502;
+    if (status >= 500) console.error('cloudflare deploy failed for ' + req.shop + ':', err.message);
+    return res.status(status).json({ error: err.message });
   }
 });
 
